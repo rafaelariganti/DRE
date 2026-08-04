@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DRE — OAF Controle Financeiro 2026</title>
+<link rel="stylesheet" href="/css/style.css"/>
+</head>
+<body>
+
+<!-- AUTH -->
+<div id="auth-screen" class="auth-screen hidden">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <span class="logo-mark">OAF</span>
+      <h1>Controle Financeiro</h1>
+      <p>Sistema DRE 2026</p>
+    </div>
+    <div class="auth-tabs">
+      <button class="tab-btn active" data-tab="login">Entrar</button>
+      <button class="tab-btn" data-tab="register">Cadastrar</button>
+    </div>
+    <div id="login-form" class="auth-form">
+      <div class="field"><label>Usuário</label><input type="text" id="login-user" placeholder="seu usuário"/></div>
+      <div class="field"><label>Senha</label><input type="password" id="login-pass" placeholder="sua senha"/></div>
+      <button class="btn-primary full" id="btn-login">Entrar</button>
+      <div class="auth-error" id="login-error"></div>
+    </div>
+    <div id="register-form" class="auth-form hidden">
+      <div class="field"><label>Usuário</label><input type="text" id="reg-user" placeholder="seu usuário"/></div>
+      <div class="field"><label>Senha</label><input type="password" id="reg-pass" placeholder="sua senha"/></div>
+      <button class="btn-primary full" id="btn-register">Cadastrar</button>
+      <div class="auth-error" id="reg-error"></div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="logo-mark sm">OAF</span>
+      <div class="brand-text"><strong>Financeiro</strong><span>DRE 2026</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-group-label">Painel</div>
+      <a href="#" class="nav-item active" data-page="dashboard">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard
+      </a>
+      <div class="nav-group-label">Lançamentos</div>
+      <a href="#" class="nav-item" data-page="lancamentos">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Receitas e Despesas
+      </a>
+      <a href="#" class="nav-item" data-page="contas-pagar-receber">
+        <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/><line x1="8" y1="15" x2="8" y2="15" stroke-width="3"/><line x1="12" y1="15" x2="16" y2="15"/></svg>Contas a Pagar/Receber
+      </a>
+      <a href="#" class="nav-item" data-page="transferencias">
+        <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Transferências
+      </a>
+      <div class="nav-group-label">Relatórios</div>
+      <a href="#" class="nav-item" data-page="dre-resumo">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>DRE Resumo
+      </a>
+      <a href="#" class="nav-item" data-page="dre-detalhado">
+        <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>DRE Detalhado
+      </a>
+      <a href="#" class="nav-item" data-page="fluxo-caixa">
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Fluxo de Caixa
+      </a>
+      <a href="#" class="nav-item" data-page="centro-custo">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Centro de Custo
+      </a>
+      <a href="#" class="nav-item" data-page="formas-pagamento-rel">
+        <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Formas de Pagamento
+      </a>
+      <div class="nav-group-label">Cadastros</div>
+      <a href="#" class="nav-item" data-page="cad-clientes">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Clientes
+      </a>
+      <a href="#" class="nav-item" data-page="cad-fornecedores">
+        <svg viewBox="0 0 24 24"><path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>Fornecedores
+      </a>
+      <a href="#" class="nav-item" data-page="cad-contas">
+        <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Contas e Grupos
+      </a>
+      <a href="#" class="nav-item" data-page="cad-caixas">
+        <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>Caixa / Banco
+      </a>
+      <a href="#" class="nav-item" data-page="cad-formas">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Formas de Pagamento
+      </a>
+      <div class="nav-group-label">Arquivos</div>
+      <a href="#" class="nav-item" data-page="import">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Importar / Exportar
+      </a>
+      <a href="#" class="nav-item" id="nav-users" style="display:none" data-page="users">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Usuários
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="avatar" id="user-avatar"></div>
+        <div><div id="user-name" class="user-name"></div><div id="user-role" class="user-role"></div></div>
+      </div>
+      <button class="btn-logout" id="btn-logout" title="Sair">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+
+    <!-- DASHBOARD -->
+    <section id="page-dashboard" class="page active">
+      <div class="page-header">
+        <div><h2>Dashboard</h2><p>Visão geral do exercício</p></div>
+        <div class="header-controls">
+          <select id="dre-year" class="select-input"></select>
+          <button class="btn-outline" id="btn-export-pdf">↓ PDF</button>
+          <button class="btn-outline" id="btn-export-excel">↓ Excel</button>
+        </div>
+      </div>
+      <div class="cards-grid">
+        <div class="card card-green"><div class="card-label">Receita Bruta</div><div class="card-value" id="kpi-receita">R$ 0,00</div></div>
+        <div class="card card-red"><div class="card-label">Total Despesas</div><div class="card-value" id="kpi-despesa">R$ 0,00</div></div>
+        <div class="card card-blue"><div class="card-label">Lucro Líquido</div><div class="card-value" id="kpi-lucro">R$ 0,00</div></div>
+        <div class="card card-gray"><div class="card-label">Margem Líquida</div><div class="card-value" id="kpi-margem">0%</div></div>
+      </div>
+
+      <!-- RF05: Status de Caixa -->
+      <div id="status-caixa-bar" class="status-caixa-bar hidden">
+        <div id="status-caixa-content"></div>
+        <div class="status-caixa-alertas" id="status-caixa-alertas"></div>
+      </div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-header"><h3>DRE Estruturado</h3></div>
+          <div class="dre-table" id="dre-table"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Receitas vs Despesas</h3>
+            <div class="chart-legend">
+              <span class="legend-dot" style="background:#059669"></span><span>Receitas</span>
+              <span class="legend-dot" style="background:#dc2626;margin-left:10px"></span><span>Despesas</span>
+            </div>
+          </div>
+          <canvas id="chart-canvas" height="260"></canvas>
+        </div>
+      </div>
+
+      <div class="three-col mt">
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Distribuição de Despesas</h3>
+            <span class="chart-subtitle" id="donut-subtitle"></span>
+          </div>
+          <div class="donut-wrap">
+            <canvas id="chart-donut" width="220" height="220"></canvas>
+            <div class="donut-legend" id="donut-legend"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Saldo Acumulado</h3>
+            <span class="chart-subtitle">Evolução do caixa no ano</span>
+          </div>
+          <canvas id="chart-saldo" height="220"></canvas>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <h3>Comparativo Mensal</h3>
+            <span class="chart-subtitle">Barras agrupadas</span>
+          </div>
+          <canvas id="chart-barras" height="220"></canvas>
+        </div>
+      </div>
+
+      <div class="panel mt">
+        <div class="panel-header"><h3>Resultado por Mês</h3></div>
+        <div class="table-wrap"><table class="data-table" id="monthly-table">
+          <thead><tr><th>Mês</th><th>Receitas</th><th>Despesas</th><th>Saldo</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- LANÇAMENTOS -->
+    <section id="page-lancamentos" class="page">
+      <div class="page-header">
+        <div><h2>Receitas e Despesas</h2><p>Lançamentos financeiros</p></div>
+        <button class="btn-primary" id="btn-new-tx">+ Novo Lançamento</button>
+      </div>
+      <div class="filter-bar">
+        <select id="filter-year" class="select-input"></select>
+        <select id="filter-month" class="select-input">
+          <option value="">Todos os meses</option>
+          <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
+          <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
+          <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
+          <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+        </select>
+        <select id="filter-type" class="select-input"><option value="">Todos os tipos</option><option value="income">Receitas</option><option value="expense">Despesas</option></select>
+        <select id="filter-status" class="select-input"><option value="">Todos os status</option><option value="quitado">Quitado</option><option value="em_aberto">Em Aberto</option></select>
+        <button class="btn-outline" id="btn-filter">Filtrar</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap"><table class="data-table" id="tx-table">
+          <thead><tr><th>Data</th><th>Tipo</th><th>Centro de Custo</th><th>Grupo / Conta</th><th>Forma Pgto</th><th>Caixa/Banco</th><th>Cliente/Fornecedor</th><th>Valor Bruto</th><th>Taxa MDR</th><th>Valor Líq.</th><th>Status</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- TRANSFERÊNCIAS -->
+    <section id="page-transferencias" class="page">
+      <div class="page-header">
+        <div><h2>Transferências</h2><p>Movimentação entre caixas e bancos</p></div>
+        <button class="btn-primary" id="btn-new-tr">+ Nova Transferência</button>
+      </div>
+      <div class="filter-bar">
+        <select id="tr-filter-year" class="select-input"></select>
+        <select id="tr-filter-month" class="select-input">
+          <option value="">Todos os meses</option>
+          <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
+          <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
+          <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
+          <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+        </select>
+        <button class="btn-outline" id="btn-filter-tr">Filtrar</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap"><table class="data-table" id="tr-table">
+          <thead><tr><th>Data</th><th>Caixa Saída</th><th>Caixa Entrada</th><th>Valor</th><th>Observações</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- DRE RESUMO -->
+    <section id="page-dre-resumo" class="page">
+      <div class="page-header">
+        <div><h2>DRE Resumo</h2><p>Saldo Inicial · Receitas · Despesas · Lucratividade</p></div>
+        <div class="header-controls">
+          <select id="resumo-year" class="select-input"></select>
+          <button class="btn-outline" id="btn-export-pdf-resumo">↓ PDF</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="table-wrap"><table class="data-table" id="resumo-table">
+          <thead><tr><th>Mês</th><th>Saldo Inicial</th><th>Receitas</th><th>Despesas</th><th>Total</th><th>Lucro</th><th>Lucratividade</th></tr></thead>
+          <tbody></tbody>
+          <tfoot><tr id="resumo-totals" style="font-weight:700;background:var(--bg)"></tr></tfoot>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- DRE DETALHADO -->
+    <section id="page-dre-detalhado" class="page">
+      <div class="page-header">
+        <div><h2>DRE Detalhado</h2><p>Por Grupo de Contas · Por Conta · Por Mês</p></div>
+        <div class="header-controls">
+          <select id="det-year" class="select-input"></select>
+          <button class="btn-outline" id="btn-export-excel-det">↓ Excel</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="table-wrap" id="det-table-wrap">
+          <table class="data-table compact" id="det-table"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- FLUXO DE CAIXA -->
+    <section id="page-fluxo-caixa" class="page">
+      <div class="page-header">
+        <div><h2>Fluxo de Caixa</h2><p>Movimentação diária</p></div>
+      </div>
+      <div class="filter-bar">
+        <select id="fluxo-year" class="select-input"></select>
+        <select id="fluxo-month" class="select-input">
+          <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
+          <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
+          <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
+          <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+        </select>
+        <select id="fluxo-caixa" class="select-input"><option value="Todos">Todos os caixas</option></select>
+        <button class="btn-outline" id="btn-filter-fluxo">Filtrar</button>
+      </div>
+      <div class="cards-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="card card-green"><div class="card-label">Total Receitas</div><div class="card-value" id="fluxo-rec">R$ 0,00</div></div>
+        <div class="card card-red"><div class="card-label">Total Despesas</div><div class="card-value" id="fluxo-desp">R$ 0,00</div></div>
+        <div class="card card-blue"><div class="card-label">Resultado</div><div class="card-value" id="fluxo-res">R$ 0,00</div></div>
+        <div class="card card-gray"><div class="card-label">Saldo Final</div><div class="card-value" id="fluxo-saldo">R$ 0,00</div></div>
+      </div>
+      <div class="panel">
+        <div class="table-wrap"><table class="data-table" id="fluxo-table">
+          <thead><tr><th>Data</th><th>Receita</th><th>Despesa</th><th>Transferência</th><th>Resultado do Dia</th><th>Saldo Acumulado</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- CENTRO DE CUSTO -->
+    <section id="page-centro-custo" class="page">
+      <div class="page-header">
+        <div><h2>Centro de Custo</h2><p>Lançamentos por centro de custo</p></div>
+      </div>
+      <div class="filter-bar">
+        <select id="cc-year" class="select-input"></select>
+        <select id="cc-month" class="select-input"><option value="">Todos os meses</option>
+          <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
+          <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
+          <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
+          <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+        </select>
+        <select id="cc-centro" class="select-input"><option value="">Todos os centros</option></select>
+        <button class="btn-outline" id="btn-filter-cc">Filtrar</button>
+      </div>
+      <div class="panel">
+        <div class="table-wrap"><table class="data-table" id="cc-table">
+          <thead><tr><th>Data</th><th>Tipo</th><th>Centro de Custo</th><th>Grupo</th><th>Conta</th><th>Forma Pgto</th><th>Valor</th><th>Status</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- FORMAS DE PAGAMENTO REL -->
+    <section id="page-formas-pagamento-rel" class="page">
+      <div class="page-header">
+        <div><h2>Formas de Pagamento</h2><p>Entradas e saídas por forma de pagamento</p></div>
+        <select id="fp-year" class="select-input"></select>
+      </div>
+      <div class="panel" id="fp-rel-panel">
+        <div class="table-wrap"><table class="data-table compact" id="fp-table"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- CADASTROS: CLIENTES -->
+    <section id="page-cad-clientes" class="page">
+      <div class="page-header"><div><h2>Clientes</h2><p>Cadastro de clientes</p></div><button class="btn-primary" onclick="openCadModal('clientes')">+ Novo Cliente</button></div>
+      <div class="panel"><div class="table-wrap"><table class="data-table" id="cad-clientes-table">
+        <thead><tr><th>Nome</th><th>CNPJ/CPF</th><th>Cidade</th><th>Estado</th><th>Telefone</th><th>Email</th><th></th></tr></thead><tbody></tbody>
+      </table></div></div>
+    </section>
+
+    <!-- CADASTROS: FORNECEDORES -->
+    <section id="page-cad-fornecedores" class="page">
+      <div class="page-header"><div><h2>Fornecedores</h2><p>Cadastro de fornecedores</p></div><button class="btn-primary" onclick="openCadModal('fornecedores')">+ Novo Fornecedor</button></div>
+      <div class="panel"><div class="table-wrap"><table class="data-table" id="cad-fornecedores-table">
+        <thead><tr><th>Nome</th><th>CNPJ/CPF</th><th>Cidade</th><th>Estado</th><th>Telefone</th><th>Email</th><th></th></tr></thead><tbody></tbody>
+      </table></div></div>
+    </section>
+
+    <!-- CADASTROS: CONTAS -->
+    <section id="page-cad-contas" class="page">
+      <div class="page-header"><div><h2>Contas e Grupos</h2><p>Grupos e contas de receitas e despesas</p></div></div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+            <h3>Contas de Receita</h3><button class="btn-primary" style="padding:6px 12px;font-size:12px" onclick="openCadModal('contas_receita')">+ Adicionar</button>
+          </div>
+          <div class="table-wrap"><table class="data-table compact" id="cad-contas-receita-table">
+            <thead><tr><th>Grupo</th><th>Conta</th><th></th></tr></thead><tbody></tbody>
+          </table></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+            <h3>Contas de Despesa</h3><button class="btn-primary" style="padding:6px 12px;font-size:12px" onclick="openCadModal('contas_despesa')">+ Adicionar</button>
+          </div>
+          <div class="table-wrap"><table class="data-table compact" id="cad-contas-despesa-table">
+            <thead><tr><th>Grupo</th><th>Conta</th><th></th></tr></thead><tbody></tbody>
+          </table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CADASTROS: CAIXAS -->
+    <section id="page-cad-caixas" class="page">
+      <div class="page-header"><div><h2>Caixa / Banco</h2><p>Contas bancárias e caixas</p></div><button class="btn-primary" onclick="openCadModal('caixas')">+ Novo Caixa</button></div>
+      <div class="panel"><div class="table-wrap"><table class="data-table" id="cad-caixas-table">
+        <thead><tr><th>Nome</th><th>Saldo Inicial (R$)</th><th></th></tr></thead><tbody></tbody>
+      </table></div></div>
+    </section>
+
+    <!-- CADASTROS: FORMAS PAGAMENTO -->
+    <section id="page-cad-formas" class="page">
+      <div class="page-header"><div><h2>Formas de Pagamento</h2><p>Taxa MDR e configurações</p></div><button class="btn-primary" onclick="openCadModal('formas_pagamento')">+ Nova Forma</button></div>
+      <div class="panel"><div class="table-wrap"><table class="data-table" id="cad-formas-pagamento-table">
+        <thead><tr><th>Nome</th><th>Parcelas</th><th>Dias p/ Recebimento</th><th>Taxa Intermediação %</th><th>Taxa Parcelamento %</th><th>Tarifa Fixa R$</th><th></th></tr></thead><tbody></tbody>
+      </table></div></div>
+    </section>
+
+    <!-- IMPORTAR/EXPORTAR -->
+    <section id="page-import" class="page">
+      <div class="page-header"><div><h2>Importar / Exportar</h2><p>Arquivos financeiros</p></div></div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-header"><h3>Importar Planilha</h3></div>
+          <div class="drop-zone" id="drop-zone">
+            <svg viewBox="0 0 24 24" class="drop-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <p>Arraste ou clique para selecionar</p><small>xlsx, xlsm, csv, xml</small>
+            <input type="file" id="file-input" accept=".xlsx,.xlsm,.xls,.csv,.xml" style="display:none"/>
+          </div>
+          <div id="import-status" class="import-status hidden"></div>
+          <div id="sheet-tabs-wrap" class="hidden">
+            <div class="sheet-tabs" id="sheet-tabs"></div>
+            <div class="sheet-preview"><div class="table-wrap"><table class="data-table compact" id="sheet-table"><thead></thead><tbody></tbody></table></div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h3>Exportar Dados</h3></div>
+          <div class="export-year-row"><label>Ano:</label><select id="export-year" class="select-input"></select></div>
+          <div class="export-buttons">
+            <button class="export-btn" data-fmt="excel"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Excel (.xlsx)</span></button>
+            <button class="export-btn" data-fmt="csv"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>CSV</span></button>
+            <button class="export-btn" data-fmt="xml"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>XML</span></button>
+            <button class="export-btn" data-fmt="pdf"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>PDF</span></button>
+          </div>
+          <div class="panel-header mt"><h3>Histórico de Importações</h3></div>
+          <div id="imports-list" class="imports-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- USUÁRIOS -->
+    <section id="page-users" class="page">
+      <div class="page-header"><div><h2>Usuários</h2><p>Controle de acesso</p></div></div>
+      <div class="panel"><div class="table-wrap"><table class="data-table" id="users-table">
+        <thead><tr><th>ID</th><th>Usuário</th><th>Função</th><th>Criado em</th><th>Ações</th></tr></thead><tbody></tbody>
+      </table></div></div>
+    </section>
+
+    <!-- CONTAS A PAGAR / RECEBER (RF06) -->
+    <section id="page-contas-pagar-receber" class="page">
+      <div class="page-header">
+        <div><h2>Contas a Pagar / Receber</h2><p>Monitoramento de títulos e vencimentos</p></div>
+        <div class="header-controls">
+          <select id="cp-year" class="select-input"></select>
+          <select id="cp-month" class="select-input">
+            <option value="">Todos os meses</option>
+            <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
+            <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
+            <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
+            <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+          </select>
+          <select id="cp-tipo" class="select-input"><option value="">Todos</option><option value="expense">A Pagar</option><option value="income">A Receber</option></select>
+          <button class="btn-outline" id="btn-filter-cp">Filtrar</button>
+        </div>
+      </div>
+
+      <!-- KPIs RF06 -->
+      <div class="cards-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="card" style="border-color:#fca5a5;background:#fef2f2">
+          <div class="card-label" style="color:#dc2626">Em Atraso</div>
+          <div class="card-value" id="cp-kpi-atrasado" style="color:#dc2626">R$ 0,00</div>
+          <div class="card-sub" id="cp-kpi-atrasado-qt" style="color:#ef4444;font-size:11px;margin-top:4px">0 títulos</div>
+        </div>
+        <div class="card" style="border-color:#fcd34d;background:#fffbeb">
+          <div class="card-label" style="color:#d97706">Vence Hoje</div>
+          <div class="card-value" id="cp-kpi-hoje" style="color:#d97706">R$ 0,00</div>
+          <div class="card-sub" id="cp-kpi-hoje-qt" style="color:#f59e0b;font-size:11px;margin-top:4px">0 títulos</div>
+        </div>
+        <div class="card" style="border-color:#93c5fd;background:#eff6ff">
+          <div class="card-label" style="color:#2563eb">A Vencer</div>
+          <div class="card-value" id="cp-kpi-avencer" style="color:#2563eb">R$ 0,00</div>
+          <div class="card-sub" id="cp-kpi-avencer-qt" style="color:#3b82f6;font-size:11px;margin-top:4px">0 títulos</div>
+        </div>
+        <div class="card" style="border-color:#6ee7b7;background:#ecfdf5">
+          <div class="card-label" style="color:#059669">Quitados</div>
+          <div class="card-value" id="cp-kpi-quitado" style="color:#059669">R$ 0,00</div>
+          <div class="card-sub" id="cp-kpi-quitado-qt" style="color:#10b981;font-size:11px;margin-top:4px">0 títulos</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="cp-tabs">
+        <button class="cp-tab active" data-tab="atrasado">
+          <span class="cp-tab-dot" style="background:#dc2626"></span>Em Atraso
+          <span class="cp-tab-badge" id="tab-badge-atrasado">0</span>
+        </button>
+        <button class="cp-tab" data-tab="hoje">
+          <span class="cp-tab-dot" style="background:#d97706"></span>Vence Hoje
+          <span class="cp-tab-badge" id="tab-badge-hoje">0</span>
+        </button>
+        <button class="cp-tab" data-tab="avencer">
+          <span class="cp-tab-dot" style="background:#2563eb"></span>A Vencer
+          <span class="cp-tab-badge" id="tab-badge-avencer">0</span>
+        </button>
+        <button class="cp-tab" data-tab="quitado">
+          <span class="cp-tab-dot" style="background:#059669"></span>Quitados
+          <span class="cp-tab-badge" id="tab-badge-quitado">0</span>
+        </button>
+        <button class="cp-tab" data-tab="todos">Todos</button>
+      </div>
+
+      <div class="panel" style="border-top-left-radius:0;border-top-right-radius:0;border-top:none">
+        <div class="table-wrap">
+          <table class="data-table" id="cp-table">
+            <thead>
+              <tr>
+                <th>Vencimento</th>
+                <th>Tipo</th>
+                <th>Descrição</th>
+                <th>Cliente/Fornecedor</th>
+                <th>Forma Pgto</th>
+                <th>Valor</th>
+                <th>Status</th>
+                <th>Atraso</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODAL BAIXA DE PAGAMENTO -->
+    <div id="modal-baixa" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-box" style="max-width:420px">
+        <div class="modal-header">
+          <h3>Registrar Baixa</h3>
+          <button class="modal-close" onclick="$('modal-baixa').classList.add('hidden')">✕</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="baixa-tx-id"/>
+          <div class="form-grid">
+            <div class="field span2">
+              <label>Título</label>
+              <div id="baixa-descricao" style="padding:8px 11px;background:var(--bg);border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)"></div>
+            </div>
+            <div class="field"><label>Valor Original</label><div id="baixa-valor-orig" style="padding:8px 11px;background:var(--bg);border-radius:var(--radius-sm);font-weight:600"></div></div>
+            <div class="field"><label>Data de Pagamento *</label><input type="date" id="baixa-data-pgto"/></div>
+            <div class="field"><label>Valor Pago (R$)</label><input type="number" id="baixa-valor-pago" step="0.01" min="0" placeholder="Deixe em branco para usar o valor original"/></div>
+            <div class="field"><label>Observações</label><input type="text" id="baixa-obs" placeholder="Opcional"/></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-outline" onclick="$('modal-baixa').classList.add('hidden')">Cancelar</button>
+          <button class="btn-primary" id="btn-confirmar-baixa">Confirmar Baixa</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- MODAL LANÇAMENTO -->
+<div id="modal-tx" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box">
+    <div class="modal-header"><h3 id="modal-title">Novo Lançamento</h3><button class="modal-close" id="modal-close">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="tx-id"/>
+      <div class="form-grid">
+        <div class="field"><label>Tipo *</label><select id="tx-type" class="select-input"><option value="income">Receita</option><option value="expense">Despesa</option></select></div>
+        <div class="field"><label>Data *</label><input type="date" id="tx-date"/></div>
+        <div class="field"><label>Centro de Custo *</label><select id="tx-centro" class="select-input"></select></div>
+        <div class="field"><label>Grupo de Contas</label><select id="tx-grupo" class="select-input"><option value="">—</option></select></div>
+        <div class="field"><label>Conta</label><select id="tx-conta" class="select-input"><option value="">—</option></select></div>
+        <div class="field"><label>Forma de Pagamento</label><select id="tx-forma" class="select-input"><option value="">—</option></select></div>
+        <div class="field"><label>Caixa / Banco</label><select id="tx-caixa" class="select-input"><option value="">—</option></select></div>
+        <div class="field"><label>Cliente / Fornecedor</label><select id="tx-cliente" class="select-input"><option value="">—</option></select></div>
+        <div class="field"><label>Valor Bruto (R$) *</label><input type="number" id="tx-amount" step="0.01" min="0" placeholder="0,00"/></div>
+        <div class="field"><label>Status</label><select id="tx-status" class="select-input"><option value="quitado">Quitado</option><option value="em_aberto">Em Aberto</option></select></div>
+        <div class="field"><label>Data de Vencimento</label><input type="date" id="tx-vencimento"/></div>
+        <div class="field"><label>Data de Pagamento</label><input type="date" id="tx-pagamento"/></div>
+        <div class="field span2"><label>Descrição / Categoria</label><input type="text" id="tx-category" placeholder="Descrição do lançamento"/></div>
+        <div class="field span2"><label>Observações</label><input type="text" id="tx-desc" placeholder="Notas adicionais"/></div>
+      </div>
+      <div id="taxa-preview" class="taxa-preview hidden">
+        <span>Taxa MDR estimada: <strong id="taxa-valor">R$ 0,00</strong></span>
+        <span>Valor líquido: <strong id="taxa-liquido">R$ 0,00</strong></span>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn-outline" id="btn-cancel-tx">Cancelar</button><button class="btn-primary" id="btn-save-tx">Salvar</button></div>
+  </div>
+</div>
+
+<!-- MODAL TRANSFERÊNCIA -->
+<div id="modal-tr" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" style="max-width:440px">
+    <div class="modal-header"><h3>Nova Transferência</h3><button class="modal-close" onclick="$('modal-tr').classList.add('hidden')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="tr-id"/>
+      <div class="form-grid">
+        <div class="field"><label>Data *</label><input type="date" id="tr-date"/></div>
+        <div class="field"><label>Valor (R$) *</label><input type="number" id="tr-amount" step="0.01" min="0" placeholder="0,00"/></div>
+        <div class="field"><label>Caixa de Saída *</label><select id="tr-saida" class="select-input"></select></div>
+        <div class="field"><label>Caixa de Entrada *</label><select id="tr-entrada" class="select-input"></select></div>
+        <div class="field span2"><label>Observações</label><input type="text" id="tr-obs" placeholder="Motivo da transferência"/></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn-outline" onclick="$('modal-tr').classList.add('hidden')">Cancelar</button><button class="btn-primary" id="btn-save-tr">Salvar</button></div>
+  </div>
+</div>
+
+<!-- MODAL CADASTRO GENÉRICO -->
+<div id="modal-cad" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-header"><h3 id="cad-modal-title">Cadastro</h3><button class="modal-close" onclick="$('modal-cad').classList.add('hidden')">✕</button></div>
+    <div class="modal-body"><div id="cad-modal-body" class="form-grid"></div></div>
+    <div class="modal-footer"><button class="btn-outline" onclick="$('modal-cad').classList.add('hidden')">Cancelar</button><button class="btn-primary" id="btn-save-cad">Salvar</button></div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
