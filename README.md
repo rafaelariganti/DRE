@@ -43,14 +43,6 @@ Acesse: http://localhost:3000
 
 ---
 
-## 📦 Migração de dados antigos (dre.json)
-
-Se você tinha dados no arquivo `db/dre.json`, eles serão migrados
-automaticamente para o MySQL na primeira inicialização.
-O arquivo original será renomeado para `dre.json.bak`.
-
----
-
 ## 🗄️ Estrutura do Banco
 
 Tabelas criadas automaticamente:
