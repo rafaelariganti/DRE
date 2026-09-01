@@ -20,11 +20,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .logo-mark{display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;background:var(--accent);color:white;font-weight:700;font-size:15px;border-radius:12px;letter-spacing:1px;margin-bottom:10px}
 .logo-mark.sm{width:34px;height:34px;font-size:11px;border-radius:8px}
 .auth-logo h1{font-size:19px;font-weight:700}.auth-logo p{font-size:12px;color:var(--text-muted);margin-top:2px}
-.auth-tabs{display:flex;border-bottom:2px solid var(--border);margin-bottom:20px}
-.tab-btn{flex:1;padding:9px;background:none;border:none;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-2px;transition:var(--t)}
-.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
 .auth-form{display:flex;flex-direction:column;gap:12px}
 .auth-error{font-size:12px;color:var(--red);text-align:center;min-height:16px}
+.setup-hint{font-size:12px;color:var(--text-muted);text-align:center;margin-bottom:4px;line-height:1.5}
 
 /* FIELDS */
 .field{display:flex;flex-direction:column;gap:4px}

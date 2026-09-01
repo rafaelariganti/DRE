@@ -16,21 +16,19 @@
       <h1>Controle Financeiro</h1>
       <p>Sistema DRE 2026</p>
     </div>
-    <div class="auth-tabs">
-      <button class="tab-btn active" data-tab="login">Entrar</button>
-      <button class="tab-btn" data-tab="register">Cadastrar</button>
-    </div>
     <div id="login-form" class="auth-form">
       <div class="field"><label>Usuário</label><input type="text" id="login-user" placeholder="seu usuário"/></div>
       <div class="field"><label>Senha</label><input type="password" id="login-pass" placeholder="sua senha"/></div>
       <button class="btn-primary full" id="btn-login">Entrar</button>
       <div class="auth-error" id="login-error"></div>
     </div>
-    <div id="register-form" class="auth-form hidden">
-      <div class="field"><label>Usuário</label><input type="text" id="reg-user" placeholder="seu usuário"/></div>
-      <div class="field"><label>Senha</label><input type="password" id="reg-pass" placeholder="sua senha"/></div>
-      <button class="btn-primary full" id="btn-register">Cadastrar</button>
-      <div class="auth-error" id="reg-error"></div>
+    <!-- Só aparece automaticamente quando o sistema ainda não tem nenhum usuário cadastrado -->
+    <div id="setup-form" class="auth-form hidden">
+      <p class="setup-hint">Nenhum usuário encontrado. Crie o primeiro acesso (administrador) para começar.</p>
+      <div class="field"><label>Usuário</label><input type="text" id="setup-user" placeholder="seu usuário"/></div>
+      <div class="field"><label>Senha</label><input type="password" id="setup-pass" placeholder="sua senha"/></div>
+      <button class="btn-primary full" id="btn-setup">Criar acesso inicial</button>
+      <div class="auth-error" id="setup-error"></div>
     </div>
   </div>
 </div>
@@ -425,7 +423,7 @@
 
     <!-- USUÁRIOS -->
     <section id="page-users" class="page">
-      <div class="page-header"><div><h2>Usuários</h2><p>Controle de acesso</p></div></div>
+      <div class="page-header"><div><h2>Usuários</h2><p>Controle de acesso</p></div><button class="btn-primary" id="btn-new-user">+ Novo Usuário</button></div>
       <div class="panel"><div class="table-wrap"><table class="data-table" id="users-table">
         <thead><tr><th>ID</th><th>Usuário</th><th>Função</th><th>Criado em</th><th>Ações</th></tr></thead><tbody></tbody>
       </table></div></div>
@@ -605,6 +603,28 @@
     <div class="modal-header"><h3 id="cad-modal-title">Cadastro</h3><button class="modal-close" onclick="$('modal-cad').classList.add('hidden')">✕</button></div>
     <div class="modal-body"><div id="cad-modal-body" class="form-grid"></div></div>
     <div class="modal-footer"><button class="btn-outline" onclick="$('modal-cad').classList.add('hidden')">Cancelar</button><button class="btn-primary" id="btn-save-cad">Salvar</button></div>
+  </div>
+</div>
+
+<!-- MODAL NOVO USUÁRIO (cadastro interno) -->
+<div id="modal-user" class="modal hidden">
+  <div class="modal-backdrop"></div>
+  <div class="modal-box" style="max-width:420px">
+    <div class="modal-header"><h3>Novo Usuário</h3><button class="modal-close" onclick="$('modal-user').classList.add('hidden')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="field"><label>Usuário</label><input type="text" id="user-field-username" placeholder="usuário de acesso"/></div>
+        <div class="field"><label>Senha</label><input type="password" id="user-field-password" placeholder="senha (mín. 4 caracteres)"/></div>
+        <div class="field"><label>Função</label>
+          <select id="user-field-role" class="select-input">
+            <option value="user">Usuário</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+      </div>
+      <div class="auth-error" id="user-modal-error"></div>
+    </div>
+    <div class="modal-footer"><button class="btn-outline" onclick="$('modal-user').classList.add('hidden')">Cancelar</button><button class="btn-primary" id="btn-save-user">Salvar</button></div>
   </div>
 </div>
 

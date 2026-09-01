@@ -39,11 +39,22 @@ async function api(path, method='GET', body=null) {
 document.addEventListener('DOMContentLoaded', function() {
 
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
+// Fluxo inicial: a tela que abre é sempre a de login. O formulário de cadastro
+// só some quando o sistema já tem pelo menos um usuário — o cadastro "de primeira
+// vez" (bootstrap do admin) aparece automaticamente apenas se o banco estiver vazio.
+// Cadastro de novos usuários no dia a dia acontece de dentro do sistema, em
+// Usuários (painel), e exige um admin logado.
 async function checkAuth() {
   const user = await api('/auth/me');
-  if (user && user.id) { state.user = user; initApp(); } else showAuth();
+  if (user && user.id) { state.user = user; initApp(); } else await showAuth();
 }
-function showAuth() { $('auth-screen').classList.remove('hidden'); $('app').classList.add('hidden'); }
+async function showAuth() {
+  $('auth-screen').classList.remove('hidden'); $('app').classList.add('hidden');
+  const status = await api('/auth/setup-status');
+  const needsSetup = !!(status && status.needsSetup);
+  $('login-form').classList.toggle('hidden', needsSetup);
+  $('setup-form').classList.toggle('hidden', !needsSetup);
+}
 function initApp() {
   $('auth-screen').classList.add('hidden'); $('app').classList.remove('hidden');
   $('user-name').textContent = state.user.username;
@@ -54,20 +65,14 @@ function initApp() {
   loadCadastros().then(() => navigateTo('dashboard'));
 }
 
-document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  $('login-form').classList.toggle('hidden', btn.dataset.tab !== 'login');
-  $('register-form').classList.toggle('hidden', btn.dataset.tab !== 'register');
-}));
 $('btn-login') && $('btn-login').addEventListener('click', async () => {
   const r = await api('/auth/login','POST',{username:$('login-user').value.trim(),password:$('login-pass').value});
   if (r.error) { $('login-error').textContent=r.error; return; }
   state.user=r; initApp();
 });
-$('btn-register') && $('btn-register').addEventListener('click', async () => {
-  const r = await api('/auth/register','POST',{username:$('reg-user').value.trim(),password:$('reg-pass').value});
-  if (r.error) { $('reg-error').textContent=r.error; return; }
+$('btn-setup') && $('btn-setup').addEventListener('click', async () => {
+  const r = await api('/auth/register','POST',{username:$('setup-user').value.trim(),password:$('setup-pass').value});
+  if (r.error) { $('setup-error').textContent=r.error; return; }
   state.user=r; initApp();
 });
 $('btn-logout') && $('btn-logout').addEventListener('click', async () => { await api('/auth/logout','POST'); state.user=null; showAuth(); });
@@ -1094,6 +1099,25 @@ async function loadUsers(){
 }
 async function toggleRole(id,role){if(!confirm(`Alterar para "${role==='admin'?'user':'admin'}"?`))return;await api(`/users/${id}/role`,'PUT',{role:role==='admin'?'user':'admin'});loadUsers();}
 async function deleteUser(id){if(!confirm('Excluir usuário?'))return;await api(`/users/${id}`,'DELETE');loadUsers();}
+
+function openUserModal(){
+  $('user-field-username').value=''; $('user-field-password').value=''; $('user-field-role').value='user';
+  $('user-modal-error').textContent='';
+  $('modal-user').classList.remove('hidden');
+}
+$('btn-new-user') && $('btn-new-user').addEventListener('click', openUserModal);
+$('btn-save-user') && $('btn-save-user').addEventListener('click', async()=>{
+  const body={
+    username: $('user-field-username').value.trim(),
+    password: $('user-field-password').value,
+    role: $('user-field-role').value,
+  };
+  if(!body.username || !body.password){ $('user-modal-error').textContent='Preencha usuário e senha.'; return; }
+  const r=await api('/users','POST',body);
+  if(r.error){ $('user-modal-error').textContent=r.error; return; }
+  $('modal-user').classList.add('hidden');
+  loadUsers();
+});
 
 // ─── GLOBALS ──────────────────────────────────────────────────────────────────
 window.editTx=editTx; window.deleteTx=deleteTx;

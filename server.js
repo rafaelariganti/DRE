@@ -42,20 +42,30 @@ function adminOnly(req, res, next) {
 }
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
+// Cadastro público só existe para o "bootstrap" do sistema (primeiro admin, quando
+// ainda não há nenhum usuário no banco). Depois disso, novos usuários só podem ser
+// criados por um admin já autenticado, de dentro do painel (ver POST /api/users).
 app.post('/api/auth/register', async (req, res) => {
   try {
+    const [{ n }] = await q('SELECT COUNT(*) as n FROM users');
+    if (n > 0) return res.status(403).json({ error: 'Cadastro público desativado. Peça a um administrador para criar seu acesso.' });
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Campos obrigatórios' });
-    const existing = await q1('SELECT id FROM users WHERE username=?', [username]);
-    if (existing) return res.status(400).json({ error: 'Usuário já existe' });
     const hash = await bcrypt.hash(password, 10);
-    const [{ n }] = await q('SELECT COUNT(*) as n FROM users');
-    const role = n === 0 ? 'admin' : 'user';
-    const result = await q('INSERT INTO users (username, password, role) VALUES (?,?,?)', [username, hash, role]);
+    const result = await q('INSERT INTO users (username, password, role) VALUES (?,?,?)', [username, hash, 'admin']);
     const id = result.insertId;
+    const role = 'admin';
     const token = jwt.sign({ id, username, role }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000 });
     res.json({ id, username, role });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sinaliza pro front se o sistema já tem algum usuário (controla o link "Configurar acesso inicial").
+app.get('/api/auth/setup-status', async (req, res) => {
+  try {
+    const [{ n }] = await q('SELECT COUNT(*) as n FROM users');
+    res.json({ needsSetup: n === 0 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -685,6 +695,22 @@ app.get('/api/cadastros', auth, async (req, res) => {
 app.get('/api/users', auth, adminOnly, async (req, res) => {
   try { res.json(await q('SELECT id, username, role, created_at FROM users ORDER BY id')); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Cadastro interno de usuários: só um admin autenticado pode criar novos acessos.
+// Não mexe no cookie de sessão de quem está criando (o admin continua logado).
+app.post('/api/users', auth, adminOnly, async (req, res) => {
+  try {
+    const { username, password, role } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'Campos obrigatórios' });
+    if (password.length < 4) return res.status(400).json({ error: 'Senha muito curta' });
+    const existing = await q1('SELECT id FROM users WHERE username=?', [username]);
+    if (existing) return res.status(400).json({ error: 'Usuário já existe' });
+    const finalRole = role === 'admin' ? 'admin' : 'user';
+    const hash = await bcrypt.hash(password, 10);
+    const result = await q('INSERT INTO users (username, password, role) VALUES (?,?,?)', [username, hash, finalRole]);
+    res.json({ id: result.insertId, username, role: finalRole });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/users/:id/role', auth, adminOnly, async (req, res) => {
