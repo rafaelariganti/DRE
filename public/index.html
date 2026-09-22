@@ -3,10 +3,28 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="color-scheme" content="light dark"/>
 <title>DRE — OAF Controle Financeiro 2026</title>
 <link rel="stylesheet" href="/css/style.css"/>
+<script>
+  // Aplica o tema salvo ANTES da página pintar, pra não piscar claro→escuro
+  // (ou vice-versa) na primeira renderização.
+  (function () {
+    try {
+      var saved = localStorage.getItem('dre-theme');
+      var theme = saved || ((window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body>
+
+<!-- ALTERNADOR DE TEMA — fixo no canto, visível tanto no login quanto no app -->
+<button id="theme-toggle" class="theme-toggle" type="button" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro">
+  <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+</button>
 
 <!-- AUTH -->
 <div id="auth-screen" class="auth-screen hidden">
@@ -49,12 +67,6 @@
       <a href="#" class="nav-item" data-page="lancamentos">
         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Receitas e Despesas
       </a>
-      <a href="#" class="nav-item" data-page="contas-pagar-receber">
-        <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/><line x1="8" y1="15" x2="8" y2="15" stroke-width="3"/><line x1="12" y1="15" x2="16" y2="15"/></svg>Contas a Pagar/Receber
-      </a>
-      <a href="#" class="nav-item" data-page="transferencias">
-        <svg viewBox="0 0 24 24"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Transferências
-      </a>
       <div class="nav-group-label">Relatórios</div>
       <a href="#" class="nav-item" data-page="dre-resumo">
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>DRE Resumo
@@ -64,9 +76,6 @@
       </a>
       <a href="#" class="nav-item" data-page="fluxo-caixa">
         <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Fluxo de Caixa
-      </a>
-      <a href="#" class="nav-item" data-page="centro-custo">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Centro de Custo
       </a>
       <a href="#" class="nav-item" data-page="formas-pagamento-rel">
         <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>Formas de Pagamento
@@ -78,8 +87,8 @@
       <a href="#" class="nav-item" data-page="cad-fornecedores">
         <svg viewBox="0 0 24 24"><path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>Fornecedores
       </a>
-      <a href="#" class="nav-item" data-page="cad-contas">
-        <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Contas e Grupos
+      <a href="#" class="nav-item" data-page="cad-parceiros">
+        <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Parceiros
       </a>
       <a href="#" class="nav-item" data-page="cad-caixas">
         <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>Caixa / Banco
@@ -94,12 +103,15 @@
       <a href="#" class="nav-item" id="nav-users" style="display:none" data-page="users">
         <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Usuários
       </a>
+      <a href="#" class="nav-item" id="nav-logs" style="display:none" data-page="logs">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="11" x2="11" y2="11"/></svg>Logs
+      </a>
     </nav>
     <div class="sidebar-footer">
-      <div class="user-info">
+      <button class="user-info" id="btn-open-profile" type="button" title="Editar perfil">
         <div class="avatar" id="user-avatar"></div>
         <div><div id="user-name" class="user-name"></div><div id="user-role" class="user-role"></div></div>
-      </div>
+      </button>
       <button class="btn-logout" id="btn-logout" title="Sair">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
       </button>
@@ -139,8 +151,8 @@
           <div class="panel-header">
             <h3>Receitas vs Despesas</h3>
             <div class="chart-legend">
-              <span class="legend-dot" style="background:#059669"></span><span>Receitas</span>
-              <span class="legend-dot" style="background:#dc2626;margin-left:10px"></span><span>Despesas</span>
+              <span class="legend-dot" style="background:#147A4A"></span><span>Receitas</span>
+              <span class="legend-dot" style="background:#B33F3F;margin-left:10px"></span><span>Despesas</span>
             </div>
           </div>
           <canvas id="chart-canvas" height="260"></canvas>
@@ -186,54 +198,59 @@
     <!-- LANÇAMENTOS -->
     <section id="page-lancamentos" class="page">
       <div class="page-header">
-        <div><h2>Receitas e Despesas</h2><p>Lançamentos financeiros</p></div>
-        <button class="btn-primary" id="btn-new-tx">+ Novo Lançamento</button>
+        <div><h2>Lançamentos</h2><p>Receitas, despesas e transferências</p></div>
       </div>
-      <div class="filter-bar">
-        <select id="filter-year" class="select-input"></select>
-        <select id="filter-month" class="select-input">
-          <option value="">Todos os meses</option>
-          <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
-          <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
-          <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
-          <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
-        </select>
-        <select id="filter-type" class="select-input"><option value="">Todos os tipos</option><option value="income">Receitas</option><option value="expense">Despesas</option></select>
-        <select id="filter-status" class="select-input"><option value="">Todos os status</option><option value="quitado">Quitado</option><option value="em_aberto">Em Aberto</option></select>
-        <button class="btn-outline" id="btn-filter">Filtrar</button>
+      <div class="subtabs">
+        <button type="button" class="subtab active" id="lanc-subtab-tx" onclick="setLancSubtab('tx')">Receitas e Despesas</button>
+        <button type="button" class="subtab" id="lanc-subtab-tr" onclick="setLancSubtab('tr')">Transferências</button>
       </div>
-      <div class="panel">
-        <div class="table-wrap"><table class="data-table" id="tx-table">
-          <thead><tr><th>Data</th><th>Tipo</th><th>Centro de Custo</th><th>Grupo / Conta</th><th>Forma Pgto</th><th>Caixa/Banco</th><th>Cliente/Fornecedor</th><th>Valor Bruto</th><th>Taxa MDR</th><th>Valor Líq.</th><th>Status</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table></div>
+
+      <div id="lanc-sub-tx">
+        <div class="page-header sub"><div></div><button class="btn-primary" id="btn-new-tx">+ Novo Lançamento</button></div>
+        <div class="filter-bar">
+          <select id="filter-year" class="select-input"></select>
+          <select id="filter-month" class="select-input">
+            <option value="">Todos os meses</option>
+            <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
+            <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
+            <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
+            <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+          </select>
+          <select id="filter-type" class="select-input"><option value="">Todos os tipos</option><option value="income">Receitas</option><option value="expense">Despesas</option></select>
+          <select id="filter-status" class="select-input"><option value="">Todos os status</option><option value="quitado">Quitado</option><option value="em_aberto">Em Aberto</option></select>
+          <button class="btn-outline" id="btn-filter">Filtrar</button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap"><table class="data-table" id="tx-table">
+            <thead><tr><th>Data</th><th>Tipo</th><th>Centro de Custo</th><th>Grupo / Conta</th><th>Forma Pgto</th><th>Caixa/Banco</th><th>Cliente/Fornecedor</th><th>Valor Bruto</th><th>Taxa MDR</th><th>Valor Líq.</th><th>Status</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
+      </div>
+
+      <div id="lanc-sub-tr" class="hidden">
+        <div class="page-header sub"><div></div><button class="btn-primary" id="btn-new-tr">+ Nova Transferência</button></div>
+        <div class="filter-bar">
+          <select id="tr-filter-year" class="select-input"></select>
+          <select id="tr-filter-month" class="select-input">
+            <option value="">Todos os meses</option>
+            <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
+            <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
+            <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
+            <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
+          </select>
+          <button class="btn-outline" id="btn-filter-tr">Filtrar</button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap"><table class="data-table" id="tr-table">
+            <thead><tr><th>Data</th><th>Caixa Saída</th><th>Caixa Entrada</th><th>Valor</th><th>Observações</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+        </div>
       </div>
     </section>
 
-    <!-- TRANSFERÊNCIAS -->
-    <section id="page-transferencias" class="page">
-      <div class="page-header">
-        <div><h2>Transferências</h2><p>Movimentação entre caixas e bancos</p></div>
-        <button class="btn-primary" id="btn-new-tr">+ Nova Transferência</button>
-      </div>
-      <div class="filter-bar">
-        <select id="tr-filter-year" class="select-input"></select>
-        <select id="tr-filter-month" class="select-input">
-          <option value="">Todos os meses</option>
-          <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
-          <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
-          <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
-          <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
-        </select>
-        <button class="btn-outline" id="btn-filter-tr">Filtrar</button>
-      </div>
-      <div class="panel">
-        <div class="table-wrap"><table class="data-table" id="tr-table">
-          <thead><tr><th>Data</th><th>Caixa Saída</th><th>Caixa Entrada</th><th>Valor</th><th>Observações</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table></div>
-      </div>
-    </section>
+
 
     <!-- DRE RESUMO -->
     <section id="page-dre-resumo" class="page">
@@ -285,43 +302,22 @@
         <select id="fluxo-caixa" class="select-input"><option value="Todos">Todos os caixas</option></select>
         <button class="btn-outline" id="btn-filter-fluxo">Filtrar</button>
       </div>
-      <div class="cards-grid" style="grid-template-columns:repeat(4,1fr)">
-        <div class="card card-green"><div class="card-label">Total Receitas</div><div class="card-value" id="fluxo-rec">R$ 0,00</div></div>
-        <div class="card card-red"><div class="card-label">Total Despesas</div><div class="card-value" id="fluxo-desp">R$ 0,00</div></div>
+      <div class="cards-grid" style="grid-template-columns:repeat(5,1fr)">
+        <div class="card card-green"><div class="card-label">Total Receitas (Realizado)</div><div class="card-value" id="fluxo-rec">R$ 0,00</div></div>
+        <div class="card card-red"><div class="card-label">Total Despesas (Realizado)</div><div class="card-value" id="fluxo-desp">R$ 0,00</div></div>
         <div class="card card-blue"><div class="card-label">Resultado</div><div class="card-value" id="fluxo-res">R$ 0,00</div></div>
-        <div class="card card-gray"><div class="card-label">Saldo Final</div><div class="card-value" id="fluxo-saldo">R$ 0,00</div></div>
+        <div class="card card-gray"><div class="card-label">Saldo Final (Realizado)</div><div class="card-value" id="fluxo-saldo">R$ 0,00</div></div>
+        <div class="card card-gray"><div class="card-label">Saldo Projetado</div><div class="card-value" id="fluxo-saldo-proj">R$ 0,00</div></div>
       </div>
       <div class="panel">
         <div class="table-wrap"><table class="data-table" id="fluxo-table">
-          <thead><tr><th>Data</th><th>Receita</th><th>Despesa</th><th>Transferência</th><th>Resultado do Dia</th><th>Saldo Acumulado</th></tr></thead>
+          <thead><tr><th>Data</th><th>Receita</th><th>Despesa</th><th>Transferência</th><th>Resultado do Dia</th><th>Saldo Realizado</th><th>Previsto (líq.)</th><th>Saldo Projetado</th></tr></thead>
           <tbody></tbody>
         </table></div>
+        <p class="fluxo-legend">Receita, Despesa e Saldo Realizado consideram só títulos <strong>quitados</strong>, na data em que o dinheiro de fato entrou/saiu. Previsto e Saldo Projetado incluem também os títulos <strong>em aberto</strong>, na data de vencimento — é uma projeção, ainda não aconteceu.</p>
       </div>
     </section>
 
-    <!-- CENTRO DE CUSTO -->
-    <section id="page-centro-custo" class="page">
-      <div class="page-header">
-        <div><h2>Centro de Custo</h2><p>Lançamentos por centro de custo</p></div>
-      </div>
-      <div class="filter-bar">
-        <select id="cc-year" class="select-input"></select>
-        <select id="cc-month" class="select-input"><option value="">Todos os meses</option>
-          <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
-          <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
-          <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
-          <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
-        </select>
-        <select id="cc-centro" class="select-input"><option value="">Todos os centros</option></select>
-        <button class="btn-outline" id="btn-filter-cc">Filtrar</button>
-      </div>
-      <div class="panel">
-        <div class="table-wrap"><table class="data-table" id="cc-table">
-          <thead><tr><th>Data</th><th>Tipo</th><th>Centro de Custo</th><th>Grupo</th><th>Conta</th><th>Forma Pgto</th><th>Valor</th><th>Status</th></tr></thead>
-          <tbody></tbody>
-        </table></div>
-      </div>
-    </section>
 
     <!-- FORMAS DE PAGAMENTO REL -->
     <section id="page-formas-pagamento-rel" class="page">
@@ -350,28 +346,14 @@
       </table></div></div>
     </section>
 
-    <!-- CADASTROS: CONTAS -->
-    <section id="page-cad-contas" class="page">
-      <div class="page-header"><div><h2>Contas e Grupos</h2><p>Grupos e contas de receitas e despesas</p></div></div>
-      <div class="two-col">
-        <div class="panel">
-          <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
-            <h3>Contas de Receita</h3><button class="btn-primary" style="padding:6px 12px;font-size:12px" onclick="openCadModal('contas_receita')">+ Adicionar</button>
-          </div>
-          <div class="table-wrap"><table class="data-table compact" id="cad-contas-receita-table">
-            <thead><tr><th>Grupo</th><th>Conta</th><th></th></tr></thead><tbody></tbody>
-          </table></div>
-        </div>
-        <div class="panel">
-          <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
-            <h3>Contas de Despesa</h3><button class="btn-primary" style="padding:6px 12px;font-size:12px" onclick="openCadModal('contas_despesa')">+ Adicionar</button>
-          </div>
-          <div class="table-wrap"><table class="data-table compact" id="cad-contas-despesa-table">
-            <thead><tr><th>Grupo</th><th>Conta</th><th></th></tr></thead><tbody></tbody>
-          </table></div>
-        </div>
-      </div>
+    <!-- CADASTROS: PARCEIROS -->
+    <section id="page-cad-parceiros" class="page">
+      <div class="page-header"><div><h2>Parceiros</h2><p>Cadastro de parceiros</p></div><button class="btn-primary" onclick="openParceiroModal()">+ Novo Parceiro</button></div>
+      <div class="panel"><div class="table-wrap"><table class="data-table" id="cad-parceiros-table">
+        <thead><tr><th>Nome</th><th>Razão Social</th><th>CNPJ</th><th>Responsável</th><th>Contato</th><th>WhatsApp</th><th>Comissão (R$)</th><th>Anexos</th><th></th></tr></thead><tbody></tbody>
+      </table></div></div>
     </section>
+
 
     <!-- CADASTROS: CAIXAS -->
     <section id="page-cad-caixas" class="page">
@@ -385,38 +367,53 @@
     <section id="page-cad-formas" class="page">
       <div class="page-header"><div><h2>Formas de Pagamento</h2><p>Taxa MDR e configurações</p></div><button class="btn-primary" onclick="openCadModal('formas_pagamento')">+ Nova Forma</button></div>
       <div class="panel"><div class="table-wrap"><table class="data-table" id="cad-formas-pagamento-table">
-        <thead><tr><th>Nome</th><th>Parcelas</th><th>Dias p/ Recebimento</th><th>Taxa Intermediação %</th><th>Taxa Parcelamento %</th><th>Tarifa Fixa R$</th><th></th></tr></thead><tbody></tbody>
+        <thead><tr><th>Nome</th><th>Banco</th><th>Agência</th><th>Parcelas</th><th>Dias p/ Recebimento</th><th>Taxa Intermediação %</th><th>Taxa Parcelamento %</th><th>Tarifa Fixa R$</th><th></th></tr></thead><tbody></tbody>
       </table></div></div>
     </section>
 
     <!-- IMPORTAR/EXPORTAR -->
     <section id="page-import" class="page">
-      <div class="page-header"><div><h2>Importar / Exportar</h2><p>Arquivos financeiros</p></div></div>
+      <div class="page-header"><div><h2>Importar / Exportar</h2><p>Documentos e relatórios</p></div></div>
+
+      <div class="subtabs">
+        <button type="button" class="subtab active" id="doc-subtab-contrato_parceiro" onclick="setDocSubtab('contrato_parceiro')">Contrato de Parceiro</button>
+        <button type="button" class="subtab" id="doc-subtab-nota_fiscal" onclick="setDocSubtab('nota_fiscal')">Nota Fiscal</button>
+        <button type="button" class="subtab" id="doc-subtab-contrato_fornecedor" onclick="setDocSubtab('contrato_fornecedor')">Contrato de Fornecedor</button>
+      </div>
+
       <div class="two-col">
         <div class="panel">
-          <div class="panel-header"><h3>Importar Planilha</h3></div>
-          <div class="drop-zone" id="drop-zone">
-            <svg viewBox="0 0 24 24" class="drop-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <p>Arraste ou clique para selecionar</p><small>xlsx, xlsm, csv, xml</small>
-            <input type="file" id="file-input" accept=".xlsx,.xlsm,.xls,.csv,.xml" style="display:none"/>
+          <div class="panel-header"><h3 id="doc-panel-title">Contrato de Parceiro</h3></div>
+          <div class="form-grid">
+            <div class="field span2" id="doc-vinculo-wrap">
+              <label id="doc-vinculo-label">Parceiro</label>
+              <select id="doc-vinculo" class="select-input"><option value="">Selecione...</option></select>
+            </div>
+            <div class="field span2"><label>Descrição</label><input type="text" id="doc-descricao" placeholder="Descrição opcional" maxlength="255"/></div>
           </div>
-          <div id="import-status" class="import-status hidden"></div>
-          <div id="sheet-tabs-wrap" class="hidden">
-            <div class="sheet-tabs" id="sheet-tabs"></div>
-            <div class="sheet-preview"><div class="table-wrap"><table class="data-table compact" id="sheet-table"><thead></thead><tbody></tbody></table></div></div>
+          <div class="file-field" style="margin-top:10px">
+            <button type="button" class="btn-outline" onclick="$('doc-file-input').click()">📎 Selecionar Arquivo</button>
+            <input type="file" id="doc-file-input" style="display:none"/>
+            <span id="doc-file-name" class="file-name">Nenhum arquivo</span>
           </div>
+          <button class="btn-primary" style="margin-top:14px" id="btn-upload-doc">Enviar Documento</button>
+          <div class="auth-error" id="doc-upload-error"></div>
         </div>
+
         <div class="panel">
-          <div class="panel-header"><h3>Exportar Dados</h3></div>
-          <div class="export-year-row"><label>Ano:</label><select id="export-year" class="select-input"></select></div>
-          <div class="export-buttons">
-            <button class="export-btn" data-fmt="excel"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Excel (.xlsx)</span></button>
-            <button class="export-btn" data-fmt="csv"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>CSV</span></button>
-            <button class="export-btn" data-fmt="xml"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>XML</span></button>
-            <button class="export-btn" data-fmt="pdf"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>PDF</span></button>
-          </div>
-          <div class="panel-header mt"><h3>Histórico de Importações</h3></div>
-          <div id="imports-list" class="imports-list"></div>
+          <div class="panel-header"><h3>Documentos Enviados</h3></div>
+          <div id="documentos-list" class="imports-list"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:20px">
+        <div class="panel-header"><h3>Exportar Dados</h3></div>
+        <div class="export-year-row"><label>Ano:</label><select id="export-year" class="select-input"></select></div>
+        <div class="export-buttons">
+          <button class="export-btn" data-fmt="excel"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Excel (.xlsx)</span></button>
+          <button class="export-btn" data-fmt="csv"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>CSV</span></button>
+          <button class="export-btn" data-fmt="xml"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>XML</span></button>
+          <button class="export-btn" data-fmt="pdf"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>PDF</span></button>
         </div>
       </div>
     </section>
@@ -429,118 +426,95 @@
       </table></div></div>
     </section>
 
-    <!-- CONTAS A PAGAR / RECEBER (RF06) -->
-    <section id="page-contas-pagar-receber" class="page">
-      <div class="page-header">
-        <div><h2>Contas a Pagar / Receber</h2><p>Monitoramento de títulos e vencimentos</p></div>
-        <div class="header-controls">
-          <select id="cp-year" class="select-input"></select>
-          <select id="cp-month" class="select-input">
-            <option value="">Todos os meses</option>
-            <option value="01">Janeiro</option><option value="02">Fevereiro</option><option value="03">Março</option>
-            <option value="04">Abril</option><option value="05">Maio</option><option value="06">Junho</option>
-            <option value="07">Julho</option><option value="08">Agosto</option><option value="09">Setembro</option>
-            <option value="10">Outubro</option><option value="11">Novembro</option><option value="12">Dezembro</option>
-          </select>
-          <select id="cp-tipo" class="select-input"><option value="">Todos</option><option value="expense">A Pagar</option><option value="income">A Receber</option></select>
-          <button class="btn-outline" id="btn-filter-cp">Filtrar</button>
-        </div>
-      </div>
-
-      <!-- KPIs RF06 -->
-      <div class="cards-grid" style="grid-template-columns:repeat(4,1fr)">
-        <div class="card" style="border-color:#fca5a5;background:#fef2f2">
-          <div class="card-label" style="color:#dc2626">Em Atraso</div>
-          <div class="card-value" id="cp-kpi-atrasado" style="color:#dc2626">R$ 0,00</div>
-          <div class="card-sub" id="cp-kpi-atrasado-qt" style="color:#ef4444;font-size:11px;margin-top:4px">0 títulos</div>
-        </div>
-        <div class="card" style="border-color:#fcd34d;background:#fffbeb">
-          <div class="card-label" style="color:#d97706">Vence Hoje</div>
-          <div class="card-value" id="cp-kpi-hoje" style="color:#d97706">R$ 0,00</div>
-          <div class="card-sub" id="cp-kpi-hoje-qt" style="color:#f59e0b;font-size:11px;margin-top:4px">0 títulos</div>
-        </div>
-        <div class="card" style="border-color:#93c5fd;background:#eff6ff">
-          <div class="card-label" style="color:#2563eb">A Vencer</div>
-          <div class="card-value" id="cp-kpi-avencer" style="color:#2563eb">R$ 0,00</div>
-          <div class="card-sub" id="cp-kpi-avencer-qt" style="color:#3b82f6;font-size:11px;margin-top:4px">0 títulos</div>
-        </div>
-        <div class="card" style="border-color:#6ee7b7;background:#ecfdf5">
-          <div class="card-label" style="color:#059669">Quitados</div>
-          <div class="card-value" id="cp-kpi-quitado" style="color:#059669">R$ 0,00</div>
-          <div class="card-sub" id="cp-kpi-quitado-qt" style="color:#10b981;font-size:11px;margin-top:4px">0 títulos</div>
-        </div>
-      </div>
-
-      <!-- Tabs -->
-      <div class="cp-tabs">
-        <button class="cp-tab active" data-tab="atrasado">
-          <span class="cp-tab-dot" style="background:#dc2626"></span>Em Atraso
-          <span class="cp-tab-badge" id="tab-badge-atrasado">0</span>
-        </button>
-        <button class="cp-tab" data-tab="hoje">
-          <span class="cp-tab-dot" style="background:#d97706"></span>Vence Hoje
-          <span class="cp-tab-badge" id="tab-badge-hoje">0</span>
-        </button>
-        <button class="cp-tab" data-tab="avencer">
-          <span class="cp-tab-dot" style="background:#2563eb"></span>A Vencer
-          <span class="cp-tab-badge" id="tab-badge-avencer">0</span>
-        </button>
-        <button class="cp-tab" data-tab="quitado">
-          <span class="cp-tab-dot" style="background:#059669"></span>Quitados
-          <span class="cp-tab-badge" id="tab-badge-quitado">0</span>
-        </button>
-        <button class="cp-tab" data-tab="todos">Todos</button>
-      </div>
-
-      <div class="panel" style="border-top-left-radius:0;border-top-right-radius:0;border-top:none">
-        <div class="table-wrap">
-          <table class="data-table" id="cp-table">
-            <thead>
-              <tr>
-                <th>Vencimento</th>
-                <th>Tipo</th>
-                <th>Descrição</th>
-                <th>Cliente/Fornecedor</th>
-                <th>Forma Pgto</th>
-                <th>Valor</th>
-                <th>Status</th>
-                <th>Atraso</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+    <!-- CADASTRO DE USUÁRIO — mesma estética visual da tela de login -->
+    <section id="page-cad-usuario" class="page">
+      <div class="page-auth-embed">
+        <div class="auth-card wide">
+          <div class="auth-logo">
+            <span class="logo-mark">OAF</span>
+            <h1 id="cad-usuario-title">Novo Usuário</h1>
+            <p>Sistema DRE 2026</p>
+          </div>
+          <div class="auth-form">
+            <div class="field"><label>Usuário</label><input type="text" id="user-field-username" placeholder="usuário de acesso"/></div>
+            <div class="field"><label id="user-field-password-label">Senha</label><input type="password" id="user-field-password" placeholder="senha (mín. 4 caracteres)"/></div>
+            <div class="field"><label>Função</label>
+              <select id="user-field-role" class="select-input">
+                <option value="user">Usuário</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+            <div class="field" id="user-permissoes-wrap">
+              <label>Telas Permitidas</label>
+              <div class="perm-list" id="user-permissoes-list"></div>
+            </div>
+            <button class="btn-primary full" id="btn-save-user">Criar usuário</button>
+            <button class="btn-outline full" id="btn-cancel-user">Cancelar</button>
+            <div class="auth-error" id="user-modal-error"></div>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- MODAL BAIXA DE PAGAMENTO -->
-    <div id="modal-baixa" class="modal hidden">
-      <div class="modal-backdrop"></div>
-      <div class="modal-box" style="max-width:420px">
-        <div class="modal-header">
-          <h3>Registrar Baixa</h3>
-          <button class="modal-close" onclick="$('modal-baixa').classList.add('hidden')">✕</button>
-        </div>
-        <div class="modal-body">
-          <input type="hidden" id="baixa-tx-id"/>
-          <div class="form-grid">
-            <div class="field span2">
-              <label>Título</label>
-              <div id="baixa-descricao" style="padding:8px 11px;background:var(--bg);border-radius:var(--radius-sm);font-size:13px;color:var(--text-muted)"></div>
+    <!-- PERFIL — editar nome, senha e foto do próprio usuário -->
+    <section id="page-perfil" class="page">
+      <div class="page-auth-embed">
+        <div class="auth-card wide">
+          <div class="auth-logo">
+            <span class="logo-mark">OAF</span>
+            <h1>Meu Perfil</h1>
+            <p>Sistema DRE 2026</p>
+          </div>
+          <div class="auth-form">
+            <div class="profile-avatar-wrap">
+              <div class="profile-avatar-preview" id="perfil-foto-preview">?</div>
+              <div class="file-field">
+                <button type="button" class="btn-outline" onclick="$('perfil-foto-input').click()">📷 Trocar Foto</button>
+                <input type="file" id="perfil-foto-input" accept="image/*" style="display:none"/>
+              </div>
             </div>
-            <div class="field"><label>Valor Original</label><div id="baixa-valor-orig" style="padding:8px 11px;background:var(--bg);border-radius:var(--radius-sm);font-weight:600"></div></div>
-            <div class="field"><label>Data de Pagamento *</label><input type="date" id="baixa-data-pgto"/></div>
-            <div class="field"><label>Valor Pago (R$)</label><input type="number" id="baixa-valor-pago" step="0.01" min="0" placeholder="Deixe em branco para usar o valor original"/></div>
-            <div class="field"><label>Observações</label><input type="text" id="baixa-obs" placeholder="Opcional"/></div>
+            <div class="field"><label>Usuário</label><input type="text" id="perfil-username" disabled/></div>
+            <div class="field"><label>Nome</label><input type="text" id="perfil-nome" placeholder="Seu nome" maxlength="150"/></div>
+            <div class="field"><label>Nova Senha</label><input type="password" id="perfil-password" placeholder="deixe em branco para não alterar"/></div>
+            <button class="btn-primary full" id="btn-save-perfil">Salvar alterações</button>
+            <button class="btn-outline full" id="btn-cancel-perfil">Cancelar</button>
+            <div class="auth-error" id="perfil-error"></div>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn-outline" onclick="$('modal-baixa').classList.add('hidden')">Cancelar</button>
-          <button class="btn-primary" id="btn-confirmar-baixa">Confirmar Baixa</button>
+      </div>
+    </section>
+
+    <!-- LOGS -->
+    <section id="page-logs" class="page">
+      <div class="page-header">
+        <div><h2>Logs</h2><p>Histórico de atividades do sistema</p></div>
+        <div class="header-controls">
+          <select id="log-action" class="select-input">
+            <option value="">Todas as ações</option>
+            <option value="login">Login</option>
+            <option value="login_failed">Login falhou</option>
+            <option value="logout">Logout</option>
+            <option value="create">Criação</option>
+            <option value="update">Edição</option>
+            <option value="delete">Exclusão</option>
+            <option value="baixa">Baixa de título</option>
+            <option value="update_role">Alteração de função</option>
+          </select>
+          <input type="text" id="log-username" class="select-input" placeholder="Filtrar por usuário" style="width:160px"/>
+          <input type="date" id="log-from" class="select-input"/>
+          <input type="date" id="log-to" class="select-input"/>
+          <button class="btn-outline" id="btn-log-filter">Filtrar</button>
         </div>
       </div>
-    </div>
+      <div class="panel"><div class="table-wrap"><table class="data-table" id="logs-table">
+        <thead><tr><th>Data/Hora</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th></tr></thead><tbody></tbody>
+      </table></div></div>
+      <div class="logs-pagination">
+        <button class="btn-outline" id="btn-log-prev">‹ Anterior</button>
+        <span id="log-page-info">Página 1</span>
+        <button class="btn-outline" id="btn-log-next">Próxima ›</button>
+      </div>
+    </section>
 
   </main>
 </div>
@@ -606,25 +580,44 @@
   </div>
 </div>
 
-<!-- MODAL NOVO USUÁRIO (cadastro interno) -->
-<div id="modal-user" class="modal hidden">
+<!-- MODAL PARCEIRO (com anexos) -->
+<div id="modal-parceiro" class="modal hidden">
   <div class="modal-backdrop"></div>
-  <div class="modal-box" style="max-width:420px">
-    <div class="modal-header"><h3>Novo Usuário</h3><button class="modal-close" onclick="$('modal-user').classList.add('hidden')">✕</button></div>
+  <div class="modal-box" style="max-width:620px">
+    <div class="modal-header"><h3 id="parceiro-modal-title">Novo Parceiro</h3><button class="modal-close" onclick="$('modal-parceiro').classList.add('hidden')">✕</button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="field"><label>Usuário</label><input type="text" id="user-field-username" placeholder="usuário de acesso"/></div>
-        <div class="field"><label>Senha</label><input type="password" id="user-field-password" placeholder="senha (mín. 4 caracteres)"/></div>
-        <div class="field"><label>Função</label>
-          <select id="user-field-role" class="select-input">
-            <option value="user">Usuário</option>
-            <option value="admin">Administrador</option>
-          </select>
+        <div class="field"><label>Nome *</label><input type="text" id="parc-nome" placeholder="Nome do parceiro" maxlength="150"/></div>
+        <div class="field"><label>Razão Social *</label><input type="text" id="parc-razao-social" placeholder="Razão social" maxlength="150"/></div>
+        <div class="field"><label>CNPJ *</label><input type="text" id="parc-cnpj" placeholder="00.000.000/0000-00" maxlength="18" inputmode="numeric"/></div>
+        <div class="field"><label>E-mail</label><input type="email" id="parc-email" placeholder="email@exemplo.com" maxlength="150"/></div>
+        <div class="field span2"><label>Endereço</label><input type="text" id="parc-endereco" placeholder="Endereço completo" maxlength="255"/></div>
+        <div class="field"><label>Comissão (R$)</label><input type="number" id="parc-comissao" placeholder="0,00" step="0.01" min="0"/></div>
+        <div class="field"><label>Contato *</label><input type="text" id="parc-contato" placeholder="(00) 00000-0000" maxlength="15" inputmode="numeric"/></div>
+        <div class="field"><label>WhatsApp</label><input type="text" id="parc-whatsapp" placeholder="(00) 00000-0000" maxlength="15" inputmode="numeric"/></div>
+        <div class="field"><label>Responsável *</label><input type="text" id="parc-responsavel" placeholder="Responsável" maxlength="150"/></div>
+        <div class="field">
+          <label>Foto</label>
+          <div class="file-field">
+            <button type="button" class="btn-outline" onclick="$('parc-foto-input').click()">📷 Anexar Foto</button>
+            <input type="file" id="parc-foto-input" accept="image/*" style="display:none"/>
+            <span id="parc-foto-name" class="file-name">Nenhum arquivo</span>
+          </div>
+          <div id="parc-foto-preview" class="file-preview hidden"></div>
+        </div>
+        <div class="field">
+          <label>Contrato</label>
+          <div class="file-field">
+            <button type="button" class="btn-outline" onclick="$('parc-contrato-input').click()">📎 Anexar Contrato</button>
+            <input type="file" id="parc-contrato-input" accept=".pdf,.doc,.docx,image/*" style="display:none"/>
+            <span id="parc-contrato-name" class="file-name">Nenhum arquivo</span>
+          </div>
+          <div id="parc-contrato-preview" class="file-preview hidden"></div>
         </div>
       </div>
-      <div class="auth-error" id="user-modal-error"></div>
+      <div class="auth-error" id="parceiro-modal-error"></div>
     </div>
-    <div class="modal-footer"><button class="btn-outline" onclick="$('modal-user').classList.add('hidden')">Cancelar</button><button class="btn-primary" id="btn-save-user">Salvar</button></div>
+    <div class="modal-footer"><button class="btn-outline" onclick="$('modal-parceiro').classList.add('hidden')">Cancelar</button><button class="btn-primary" id="btn-save-parceiro">Salvar</button></div>
   </div>
 </div>
 

@@ -5,10 +5,10 @@ window.addEventListener('error', function(e) {
   if (body) {
     body.style.background = '#fff';
     body.innerHTML = `<div style="padding:40px;font-family:sans-serif;max-width:600px;margin:0 auto">
-      <h2 style="color:#dc2626">⚠ Erro ao carregar o sistema</h2>
+      <h2 style="color:#B33F3F">⚠ Erro ao carregar o sistema</h2>
       <p style="color:#666;margin:12px 0">Abra o Console do navegador (F12 → Console) e envie o erro para suporte.</p>
-      <pre style="background:#fef2f2;border:1px solid #fecaca;padding:16px;border-radius:8px;font-size:13px;color:#dc2626;white-space:pre-wrap">${e.message}\n\nArquivo: ${e.filename}\nLinha: ${e.lineno}</pre>
-      <button onclick="location.reload()" style="margin-top:16px;padding:10px 20px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">↺ Tentar novamente</button>
+      <pre style="background:#FBEBEA;border:1px solid #E3BCBC;padding:16px;border-radius:8px;font-size:13px;color:#B33F3F;white-space:pre-wrap">${e.message}\n\nArquivo: ${e.filename}\nLinha: ${e.lineno}</pre>
+      <button onclick="location.reload()" style="margin-top:16px;padding:10px 20px;background:#0E6E7A;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">↺ Tentar novamente</button>
     </div>`;
   }
 });
@@ -21,6 +21,10 @@ const MONTHS_S = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','N
 const $ = id => document.getElementById(id);
 const fmtBRL = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtPct = v => (Number(v||0)*100).toFixed(1) + '%';
+// Escapa texto vindo do usuário (cadastros, lançamentos, nome de usuário etc.) antes
+// de jogar em innerHTML. Sem isso, alguém podia salvar um cliente/fornecedor com
+// nome tipo "<img src=x onerror=...>" e rodar JS na tela de quem abrisse a lista.
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function api(path, method='GET', body=null) {
   const opts = { method, credentials: 'include', headers: {'Content-Type':'application/json'} };
@@ -57,12 +61,25 @@ async function showAuth() {
 }
 function initApp() {
   $('auth-screen').classList.add('hidden'); $('app').classList.remove('hidden');
-  $('user-name').textContent = state.user.username;
+  $('user-name').textContent = state.user.nome || state.user.username;
   $('user-role').textContent = state.user.role === 'admin' ? 'Administrador' : 'Usuário';
-  $('user-avatar').textContent = state.user.username[0].toUpperCase();
-  if (state.user.role === 'admin') $('nav-users').style.display = '';
+  renderAvatar($('user-avatar'), state.user);
+  if (state.user.role === 'admin') { $('nav-users').style.display = ''; $('nav-logs').style.display = ''; }
+  else { $('nav-users').style.display = 'none'; $('nav-logs').style.display = 'none'; }
+  aplicarPermissoesNav();
   populateYearSelects();
-  loadCadastros().then(() => navigateTo('dashboard'));
+  loadCadastros().then(() => navigateTo(primeiraPaginaPermitida()));
+}
+
+// Mostra a foto de perfil (se tiver) ou a inicial do nome/usuário, num círculo.
+function renderAvatar(el, user) {
+  if (!el) return;
+  if (user && user.foto_path) {
+    el.innerHTML = `<img src="${user.foto_path}" alt="foto de perfil"/>`;
+  } else {
+    el.innerHTML = '';
+    el.textContent = ((user && (user.nome || user.username)) || '?')[0].toUpperCase();
+  }
 }
 
 $('btn-login') && $('btn-login').addEventListener('click', async () => {
@@ -77,31 +94,129 @@ $('btn-setup') && $('btn-setup').addEventListener('click', async () => {
 });
 $('btn-logout') && $('btn-logout').addEventListener('click', async () => { await api('/auth/logout','POST'); state.user=null; showAuth(); });
 
+// ─── PERFIL DO USUÁRIO ──────────────────────────────────────────────────────────
+function openProfileScreen() {
+  $('perfil-username').value = state.user.username;
+  $('perfil-nome').value = state.user.nome || '';
+  $('perfil-password').value = '';
+  $('perfil-foto-input').value = '';
+  $('perfil-error').textContent = '';
+  renderAvatar($('perfil-foto-preview'), state.user);
+  navigateTo('perfil');
+}
+$('btn-open-profile') && $('btn-open-profile').addEventListener('click', openProfileScreen);
+$('btn-cancel-perfil') && $('btn-cancel-perfil').addEventListener('click', () => navigateTo('dashboard'));
+
+$('perfil-foto-input') && $('perfil-foto-input').addEventListener('change', () => {
+  const f = $('perfil-foto-input').files[0];
+  if (!f) return;
+  $('perfil-foto-preview').innerHTML = `<img src="${URL.createObjectURL(f)}" alt="foto de perfil"/>`;
+});
+
+// Igual aos anexos de parceiros: precisa de multipart/form-data pra mandar a
+// foto, então não dá pra usar o helper api() (que só manda JSON).
+$('btn-save-perfil') && $('btn-save-perfil').addEventListener('click', async () => {
+  const senha = $('perfil-password').value;
+  if (senha && senha.length < 4) { $('perfil-error').textContent = 'A nova senha deve ter ao menos 4 caracteres.'; return; }
+  const fd = new FormData();
+  fd.append('nome', $('perfil-nome').value.trim());
+  if (senha) fd.append('password', senha);
+  const fotoFile = $('perfil-foto-input').files[0];
+  if (fotoFile) fd.append('foto', fotoFile);
+
+  try {
+    const res  = await fetch('/api/auth/profile', { method: 'PUT', credentials: 'include', body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { showAuth(); return; }
+    if (data.error) { $('perfil-error').textContent = 'Erro: ' + data.error; return; }
+    state.user = data;
+    $('user-name').textContent = state.user.nome || state.user.username;
+    renderAvatar($('user-avatar'), state.user);
+    navigateTo('dashboard');
+  } catch (e) {
+    $('perfil-error').textContent = 'Erro ao salvar perfil.';
+  }
+});
+
+// ─── THEME TOGGLE (claro/escuro) ───────────────────────────────────────────────
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('dre-theme', theme); } catch (e) {}
+}
+$('theme-toggle') && $('theme-toggle').addEventListener('click', () => {
+  const atual = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  applyTheme(atual === 'dark' ? 'light' : 'dark');
+});
+
 // ─── NAVIGATION ───────────────────────────────────────────────────────────────
 document.querySelectorAll('.nav-item').forEach(item => item.addEventListener('click', e => {
   e.preventDefault(); navigateTo(item.dataset.page);
 }));
 
+// Telas que podem ser liberadas seletivamente pra um usuário não-admin (espelha
+// a mesma lista do server.js). Dashboard e Perfil ficam sempre acessíveis.
+const PAGINAS_PERMISSAO = [
+  { key:'dashboard',              label:'Dashboard' },
+  { key:'lancamentos',            label:'Lançamentos (Receitas, Despesas e Transferências)' },
+  { key:'dre-resumo',             label:'DRE Resumo' },
+  { key:'dre-detalhado',          label:'DRE Detalhado' },
+  { key:'fluxo-caixa',            label:'Fluxo de Caixa' },
+  { key:'formas-pagamento-rel',   label:'Formas de Pagamento (Relatório)' },
+  { key:'cad-clientes',           label:'Clientes' },
+  { key:'cad-fornecedores',       label:'Fornecedores' },
+  { key:'cad-parceiros',          label:'Parceiros' },
+  { key:'cad-caixas',             label:'Caixa / Banco' },
+  { key:'cad-formas',             label:'Formas de Pagamento (Cadastro)' },
+  { key:'import',                 label:'Importar / Exportar' },
+];
+const PAGINAS_SEMPRE_LIBERADAS = ['perfil'];
+
+function podeAcessarPagina(page) {
+  if (!state.user) return false;
+  if (state.user.role === 'admin') return true;
+  if (PAGINAS_SEMPRE_LIBERADAS.includes(page)) return true;
+  return (state.user.permissoes || []).includes(page);
+}
+
+// Esconde do menu qualquer tela que o usuário não tenha permissão de ver.
+// nav-users/nav-logs continuam controlados só pela função (admin), à parte disso.
+function aplicarPermissoesNav() {
+  document.querySelectorAll('.nav-item[data-page]').forEach(item => {
+    const page = item.dataset.page;
+    if (page === 'users' || page === 'logs') return;
+    item.style.display = podeAcessarPagina(page) ? '' : 'none';
+  });
+}
+
 const pageLoaders = {
   dashboard: loadDashboard,
-  lancamentos: () => loadTransactions(true),
-  transferencias: () => loadTransfers(true),
-  'contas-pagar-receber': loadContasPagarReceber,
+  lancamentos: () => { setLancSubtab('tx'); loadTransactions(true); },
   'dre-resumo': loadDREResumo,
   'dre-detalhado': loadDREDetalhado,
   'fluxo-caixa': loadFluxoCaixa,
-  'centro-custo': loadCentroCusto,
   'formas-pagamento-rel': loadFormasPagamentoRel,
   'cad-clientes': () => loadCad('clientes'),
   'cad-fornecedores': () => loadCad('fornecedores'),
-  'cad-contas': loadCadContas,
+  'cad-parceiros': loadParceiros,
   'cad-caixas': () => loadCad('caixas'),
   'cad-formas': () => loadCad('formas_pagamento'),
-  import: loadImports,
+  import: () => setDocSubtab('contrato_parceiro'),
   users: loadUsers,
+  logs: () => loadLogs(1),
 };
 
+// Primeira tela que o usuário tem permissão de ver — usada como destino padrão
+// no login e como "válvula de escape" quando ele tenta acessar algo vedado.
+function primeiraPaginaPermitida() {
+  if (!state.user) return 'perfil';
+  if (state.user.role === 'admin') return 'dashboard';
+  if ((state.user.permissoes || []).includes('dashboard')) return 'dashboard';
+  const outra = PAGINAS_PERMISSAO.find(p => (state.user.permissoes || []).includes(p.key));
+  return outra ? outra.key : 'perfil';
+}
+
 function navigateTo(page) {
+  if (!podeAcessarPagina(page)) page = primeiraPaginaPermitida();
   state.page = page;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
@@ -116,7 +231,7 @@ function populateYearSelects() {
     const el=$(id); if(!el) return;
     el.innerHTML = years.map(y=>`<option value="${y}" ${y===cur?'selected':''}>${y}</option>`).join('');
   });
-  ['filter-year','tr-filter-year','cc-year','fluxo-year','cp-year'].forEach(id => {
+  ['filter-year','tr-filter-year','fluxo-year'].forEach(id => {
     const el=$(id); if(!el) return;
     el.innerHTML = `<option value="">Todos os anos</option>` + years.map(y=>`<option value="${y}" ${y===cur?'selected':''}>${y}</option>`).join('');
   });
@@ -130,7 +245,6 @@ async function loadCadastros() {
   state.cadastros = await api('/cadastros');
   populateTxSelects();
   populateCaixaSelects();
-  populateCCFilter();
 }
 
 function populateTxSelects() {
@@ -152,12 +266,6 @@ function populateCaixaSelects() {
   });
   const fc = $('fluxo-caixa');
   if (fc) fc.innerHTML = `<option value="Todos">Todos os caixas</option>` + caixas.map(c=>`<option value="${c}">${c}</option>`).join('');
-}
-
-function populateCCFilter() {
-  const cc = state.cadastros.centrosCusto||[];
-  const el=$('cc-centro'); if(!el) return;
-  el.innerHTML = `<option value="">Todos os centros</option>` + cc.map(c=>`<option value="${c}">${c}</option>`).join('');
 }
 
 // Contas e centros de custo dinâmicos no modal de lançamento
@@ -274,11 +382,11 @@ function renderChart(summary) {
   const maxVal=Math.max(...recs,...desps,1);
   const x=i=>pad.left+(i/11)*cW, y=v=>pad.top+cH-(v/maxVal)*cH;
   // Grid
-  ctx.strokeStyle='#f0f2f5'; ctx.lineWidth=1;
+  ctx.strokeStyle='#E4E9E2'; ctx.lineWidth=1;
   for(let i=0;i<=4;i++){
     const yy=pad.top+(i/4)*cH;
     ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(W-pad.right,yy);ctx.stroke();
-    ctx.fillStyle='#9ca3af';ctx.font='10px Inter,sans-serif';ctx.textAlign='right';
+    ctx.fillStyle='#93A398';ctx.font='10px Inter,sans-serif';ctx.textAlign='right';
     ctx.fillText(fmtBRL((1-i/4)*maxVal).replace('R$ ',''),pad.left-6,yy+4);
   }
   // Areas
@@ -288,15 +396,15 @@ function renderChart(summary) {
     ctx.lineTo(x(11),pad.top+cH);ctx.lineTo(x(0),pad.top+cH);ctx.closePath();
     ctx.fillStyle=color+'18';ctx.fill();
   };
-  drawArea(recs,'#059669');drawArea(desps,'#dc2626');
+  drawArea(recs,'#147A4A');drawArea(desps,'#B33F3F');
   // Lines
   const drawLine=(vals,color)=>{
     ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=2.5;ctx.lineJoin='round';ctx.lineCap='round';
     vals.forEach((v,i)=>i===0?ctx.moveTo(x(i),y(v)):ctx.lineTo(x(i),y(v)));ctx.stroke();
     vals.forEach((v,i)=>{ctx.beginPath();ctx.arc(x(i),y(v),3.5,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();});
   };
-  drawLine(recs,'#059669');drawLine(desps,'#dc2626');
-  ctx.fillStyle='#6b7280';ctx.font='10px Inter,sans-serif';ctx.textAlign='center';
+  drawLine(recs,'#147A4A');drawLine(desps,'#B33F3F');
+  ctx.fillStyle='#5E6E63';ctx.font='10px Inter,sans-serif';ctx.textAlign='center';
   MONTHS_S.forEach((m,i)=>ctx.fillText(m,x(i),H-8));
 }
 
@@ -322,11 +430,11 @@ function renderDonutChart(summary, expensesByCategory) {
   const entries = Object.entries(cats).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,7);
   const total = entries.reduce((s,[,v])=>s+v,0);
 
-  const COLORS=['#3b82f6','#dc2626','#f59e0b','#059669','#8b5cf6','#ec4899','#64748b'];
+  const COLORS=['#0E6E7A','#B33F3F','#B98B2E','#147A4A','#6B5CA5','#B0577D','#5E6E63'];
 
   if(!total || !entries.length){
-    ctx.fillStyle='#e5e7eb';ctx.beginPath();ctx.arc(SIZE/2,SIZE/2,80,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#9ca3af';ctx.font='12px Inter,sans-serif';ctx.textAlign='center';
+    ctx.fillStyle='#E1E6DF';ctx.beginPath();ctx.arc(SIZE/2,SIZE/2,80,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#93A398';ctx.font='12px Inter,sans-serif';ctx.textAlign='center';
     ctx.fillText('Sem dados',SIZE/2,SIZE/2+4);
     if($('donut-legend')) $('donut-legend').innerHTML='';
     if($('donut-subtitle')) $('donut-subtitle').textContent='';
@@ -350,9 +458,9 @@ function renderDonutChart(summary, expensesByCategory) {
   ctx.beginPath();ctx.arc(cx,cy,innerR,0,Math.PI*2);
   ctx.fillStyle='#fff';ctx.fill();
   // Center text
-  ctx.fillStyle='#374151';ctx.font='bold 13px Inter,sans-serif';ctx.textAlign='center';
+  ctx.fillStyle='#16231B';ctx.font='bold 13px Inter,sans-serif';ctx.textAlign='center';
   ctx.fillText(fmtBRL(total).replace('R$ ','R$'),cx,cy-4);
-  ctx.fillStyle='#9ca3af';ctx.font='10px Inter,sans-serif';
+  ctx.fillStyle='#93A398';ctx.font='10px Inter,sans-serif';
   ctx.fillText('total despesas',cx,cy+14);
 
   // Legend
@@ -387,42 +495,42 @@ function renderSaldoChart(summary) {
   const zero=y(0);
 
   // Grid
-  ctx.strokeStyle='#f0f2f5';ctx.lineWidth=1;
+  ctx.strokeStyle='#E4E9E2';ctx.lineWidth=1;
   for(let i=0;i<=4;i++){
     const yy=pad.top+(i/4)*cH;
     ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(W-pad.right,yy);ctx.stroke();
     const val=minS+((1-i/4)*range);
-    ctx.fillStyle='#9ca3af';ctx.font='9px Inter,sans-serif';ctx.textAlign='right';
+    ctx.fillStyle='#93A398';ctx.font='9px Inter,sans-serif';ctx.textAlign='right';
     ctx.fillText(fmtBRL(val).replace('R$ ',''),pad.left-4,yy+3);
   }
 
   // Zero line
   if(minS<0 && maxS>0){
-    ctx.save();ctx.strokeStyle='#d1d5db';ctx.setLineDash([4,4]);ctx.lineWidth=1;
+    ctx.save();ctx.strokeStyle='#C9D2C7';ctx.setLineDash([4,4]);ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(pad.left,zero);ctx.lineTo(W-pad.right,zero);ctx.stroke();
     ctx.restore();
   }
 
   // Gradient fill
   const gradient=ctx.createLinearGradient(0,pad.top,0,pad.top+cH);
-  gradient.addColorStop(0,'rgba(59,130,246,0.22)');
-  gradient.addColorStop(1,'rgba(59,130,246,0.02)');
+  gradient.addColorStop(0,'rgba(14,110,122,0.22)');
+  gradient.addColorStop(1,'rgba(14,110,122,0.02)');
   ctx.beginPath();ctx.moveTo(x(0),y(saldos[0]));
   saldos.forEach((v,i)=>{if(i>0)ctx.lineTo(x(i),y(v))});
   ctx.lineTo(x(11),pad.top+cH);ctx.lineTo(x(0),pad.top+cH);ctx.closePath();
   ctx.fillStyle=gradient;ctx.fill();
 
   // Line
-  ctx.beginPath();ctx.strokeStyle='#3b82f6';ctx.lineWidth=2.5;ctx.lineJoin='round';ctx.lineCap='round';
+  ctx.beginPath();ctx.strokeStyle='#0E6E7A';ctx.lineWidth=2.5;ctx.lineJoin='round';ctx.lineCap='round';
   saldos.forEach((v,i)=>i===0?ctx.moveTo(x(i),y(v)):ctx.lineTo(x(i),y(v)));ctx.stroke();
   // Dots
   saldos.forEach((v,i)=>{
     ctx.beginPath();ctx.arc(x(i),y(v),3,0,Math.PI*2);
-    ctx.fillStyle=v>=0?'#3b82f6':'#dc2626';ctx.fill();
+    ctx.fillStyle=v>=0?'#0E6E7A':'#B33F3F';ctx.fill();
     ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
   });
 
-  ctx.fillStyle='#6b7280';ctx.font='9px Inter,sans-serif';ctx.textAlign='center';
+  ctx.fillStyle='#5E6E63';ctx.font='9px Inter,sans-serif';ctx.textAlign='center';
   MONTHS_S.forEach((m,i)=>ctx.fillText(m,x(i),H-6));
 }
 
@@ -441,11 +549,11 @@ function renderBarrasChart(summary) {
   const barW=Math.max(4,slotW*0.35);
 
   // Grid
-  ctx.strokeStyle='#f0f2f5';ctx.lineWidth=1;
+  ctx.strokeStyle='#E4E9E2';ctx.lineWidth=1;
   for(let i=0;i<=4;i++){
     const yy=pad.top+(i/4)*cH;
     ctx.beginPath();ctx.moveTo(pad.left,yy);ctx.lineTo(W-pad.right,yy);ctx.stroke();
-    ctx.fillStyle='#9ca3af';ctx.font='9px Inter,sans-serif';ctx.textAlign='right';
+    ctx.fillStyle='#93A398';ctx.font='9px Inter,sans-serif';ctx.textAlign='right';
     ctx.fillText(fmtBRL((1-i/4)*maxVal).replace('R$ ',''),pad.left-4,yy+3);
   }
 
@@ -455,21 +563,21 @@ function renderBarrasChart(summary) {
     const despH=(m.despesas/maxVal)*cH;
 
     // Receita (esquerda do par)
-    ctx.fillStyle='#059669';
+    ctx.fillStyle='#147A4A';
     ctx.beginPath();
     ctx.roundRect?ctx.roundRect(cx-barW-1,pad.top+cH-recH,barW,recH,2):
       ctx.rect(cx-barW-1,pad.top+cH-recH,barW,recH);
     ctx.fill();
 
     // Despesa (direita do par)
-    ctx.fillStyle='#dc2626';
+    ctx.fillStyle='#B33F3F';
     ctx.beginPath();
     ctx.roundRect?ctx.roundRect(cx+1,pad.top+cH-despH,barW,despH,2):
       ctx.rect(cx+1,pad.top+cH-despH,barW,despH);
     ctx.fill();
   });
 
-  ctx.fillStyle='#6b7280';ctx.font='9px Inter,sans-serif';ctx.textAlign='center';
+  ctx.fillStyle='#5E6E63';ctx.font='9px Inter,sans-serif';ctx.textAlign='center';
   MONTHS_S.forEach((m,i)=>ctx.fillText(m,pad.left+slotW*i+slotW/2,H-6));
 }
 
@@ -509,7 +617,7 @@ async function renderStatusCaixa(summary, dreLines) {
     msg=`Saldo acumulado do período: <strong>${fmtBRL(saldoAcum)}</strong>`;
   } else if (saldoAcum < 0) {
     statusCls='negativo'; badgeCls='alerta'; badgeLabel='⚠ Caixa Negativo';
-    msg=`Necessidade financeira identificada: <strong style="color:#dc2626">${fmtBRL(Math.abs(saldoAcum))}</strong> abaixo do zero`;
+    msg=`Necessidade financeira identificada: <strong style="color:#B33F3F">${fmtBRL(Math.abs(saldoAcum))}</strong> abaixo do zero`;
   } else {
     statusCls='neutro'; badgeCls='neutro'; badgeLabel='— Saldo Neutro';
     msg='Sem movimentações no período selecionado';
@@ -519,140 +627,13 @@ async function renderStatusCaixa(summary, dreLines) {
   content.innerHTML=`<span class="status-badge ${badgeCls}">${badgeLabel}</span><span style="color:var(--text-muted)">${msg}</span>`;
 
   let alertasHTML='';
-  if (qtAtraso>0) alertasHTML+=`<button class="status-alerta-pill atraso" onclick="navigateTo('contas-pagar-receber');setTimeout(()=>setTabCP('atrasado'),300)">⚠ ${qtAtraso} título${qtAtraso>1?'s':''} em atraso · ${fmtBRL(vlAtraso)}</button>`;
-  if (qtHoje>0) alertasHTML+=`<button class="status-alerta-pill hoje" onclick="navigateTo('contas-pagar-receber');setTimeout(()=>setTabCP('hoje'),300)">⏰ ${qtHoje} vence${qtHoje>1?'m':''} hoje</button>`;
+  if (qtAtraso>0) alertasHTML+=`<button class="status-alerta-pill atraso" onclick="irParaLancamentosEmAberto()">⚠ ${qtAtraso} título${qtAtraso>1?'s':''} em atraso · ${fmtBRL(vlAtraso)}</button>`;
+  if (qtHoje>0) alertasHTML+=`<button class="status-alerta-pill hoje" onclick="irParaLancamentosEmAberto()">⏰ ${qtHoje} vence${qtHoje>1?'m':''} hoje</button>`;
   alertasEl.innerHTML=alertasHTML;
 }
-
-// ─── RF06: CONTAS A PAGAR / RECEBER ──────────────────────────────────────────
-let _cpTab = 'atrasado';
-let _cpData = [];
-
-function setTabCP(tab) {
-  _cpTab = tab;
-  document.querySelectorAll('.cp-tab').forEach(t => t.classList.toggle('active', t.dataset.tab===tab));
-  renderCPTable();
-}
-
-async function loadContasPagarReceber() {
-  const year=$('cp-year').value, month=$('cp-month').value, tipo=$('cp-tipo').value;
-  const qs=[];
-  if(year) qs.push(`year=${year}`);
-  if(month) qs.push(`month=${month}`);
-  if(tipo) qs.push(`type=${tipo}`);
-  // Busca apenas em_aberto para a visão gerencial (+ quitados para a tab)
-  const [emAberto, quitados] = await Promise.all([
-    api('/transactions?status=em_aberto'+(qs.length?'&'+qs.join('&'):'')),
-    api('/transactions?status=quitado'+(qs.length?'&'+qs.join('&'):'')),
-  ]);
-
-  const today = new Date(); today.setHours(0,0,0,0);
-  const fmt = d => new Date(d+'T00:00:00');
-
-  const classify = (t) => {
-    if (!t.data_vencimento) return 'avencer';
-    const venc = fmt(t.data_vencimento); venc.setHours(0,0,0,0);
-    if (venc < today) return 'atrasado';
-    if (venc.getTime() === today.getTime()) return 'hoje';
-    return 'avencer';
-  };
-
-  const aberto = Array.isArray(emAberto) ? emAberto : [];
-  const quit   = Array.isArray(quitados) ? quitados : [];
-
-  const groups = { atrasado:[], hoje:[], avencer:[], quitado: quit };
-  aberto.forEach(t => { const g=classify(t); groups[g].push(t); });
-
-  _cpData = { atrasado: groups.atrasado, hoje: groups.hoje, avencer: groups.avencer, quitado: groups.quitado, todos: [...aberto,...quit] };
-
-  // KPIs
-  const kpi = (key) => {
-    const items = _cpData[key]||[];
-    const val = items.reduce((s,t)=>s+Number(t.amount||0),0);
-    $(`cp-kpi-${key}`) && ($(`cp-kpi-${key}`).textContent=fmtBRL(val));
-    $(`cp-kpi-${key}-qt`) && ($(`cp-kpi-${key}-qt`).textContent=`${items.length} título${items.length!==1?'s':''}`);
-    $(`tab-badge-${key}`) && ($(`tab-badge-${key}`).textContent=items.length);
-  };
-  kpi('atrasado'); kpi('hoje'); kpi('avencer'); kpi('quitado');
-  $('tab-badge-atrasado') && ($('tab-badge-atrasado').textContent=_cpData.atrasado.length);
-  renderCPTable();
-}
-
-function renderCPTable() {
-  const tbody = document.querySelector('#cp-table tbody'); if (!tbody) return;
-  const items = _cpData[_cpTab] || [];
-  const today = new Date(); today.setHours(0,0,0,0);
-
-  if (!items.length) {
-    tbody.innerHTML=`<tr><td colspan="9" style="text-align:center;padding:36px;color:var(--text-muted)">Nenhum título nesta categoria</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = items.map(t => {
-    const venc = t.data_vencimento || '—';
-    const tipo = t.type==='income'?'Receber':'Pagar';
-    const badgeCls = t.type==='income'?'badge-income':'badge-expense';
-
-    let diasHtml = '—';
-    if (t.data_vencimento && t.status==='em_aberto') {
-      const diff = Math.round((today - new Date(t.data_vencimento+'T00:00:00')) / 86400000);
-      if (diff > 0) diasHtml=`<span class="dias-atraso ${diff>30?'grave':diff>7?'medio':'leve'}">${diff}d atraso</span>`;
-      else if (diff===0) diasHtml=`<span class="dias-atraso medio">Hoje</span>`;
-      else diasHtml=`<span class="dias-atraso ok">${Math.abs(diff)}d restantes</span>`;
-    } else if (t.status==='quitado') {
-      diasHtml=`<span class="dias-atraso ok">Quitado</span>`;
-    }
-
-    const acoes = t.status==='em_aberto'
-      ? `<button class="btn-baixa" onclick="openModalBaixa(${t.id})">Dar Baixa</button>`
-      : `<button class="btn-reabrir" onclick="reabrirTitulo(${t.id})">Reabrir</button>`;
-
-    return `<tr>
-      <td style="font-weight:500">${venc}</td>
-      <td><span class="badge ${badgeCls}">${tipo}</span></td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.category||t.description||'—'}">${t.category||t.description||'—'}</td>
-      <td>${t.cliente_fornecedor||'—'}</td>
-      <td>${t.forma_pagamento||'—'}</td>
-      <td style="font-weight:600;color:${t.type==='income'?'var(--green)':'var(--red)'}">${fmtBRL(t.amount)}</td>
-      <td><span class="badge ${t.status==='quitado'?'badge-ok':'badge-pend'}">${t.status==='quitado'?'Quitado':'Em Aberto'}</span></td>
-      <td>${diasHtml}</td>
-      <td style="white-space:nowrap">${acoes}&nbsp;<button class="action-btn" onclick="editTx(${t.id})" title="Editar">✎</button></td>
-    </tr>`;
-  }).join('');
-}
-
-// Dar Baixa
-function openModalBaixa(id) {
-  const all = [...(_cpData.atrasado||[]),...(_cpData.hoje||[]),...(_cpData.avencer||[]),...(_cpData.todos||[])];
-  const t = all.find(x=>x.id===id); if (!t) return;
-  $('baixa-tx-id').value = id;
-  $('baixa-descricao').textContent = t.category || t.description || `Lançamento #${id}`;
-  $('baixa-valor-orig').textContent = fmtBRL(t.amount);
-  $('baixa-data-pgto').value = new Date().toISOString().slice(0,10);
-  $('baixa-valor-pago').value = '';
-  $('baixa-obs').value = '';
-  $('modal-baixa').classList.remove('hidden');
-}
-
-$('btn-confirmar-baixa') && $('btn-confirmar-baixa').addEventListener('click', async () => {
-  const id = $('baixa-tx-id').value;
-  const dataPgto = $('baixa-data-pgto').value;
-  if (!dataPgto) { alert('Informe a data de pagamento'); return; }
-  const btn = $('btn-confirmar-baixa'); btn.textContent='Salvando...'; btn.disabled=true;
-  const obs = $('baixa-obs').value;
-  const body = { status: 'quitado', data_pagamento: dataPgto };
-  if (obs) body.observacoes = obs;
-  const r = await api(`/transactions/${id}`,'PATCH', body);
-  btn.textContent='Confirmar Baixa'; btn.disabled=false;
-  if (r.error) { alert('Erro: '+r.error); return; }
-  $('modal-baixa').classList.add('hidden');
-  loadContasPagarReceber();
-});
-
-async function reabrirTitulo(id) {
-  if (!confirm('Reabrir este título (voltar para Em Aberto)?')) return;
-  await api(`/transactions/${id}`,'PATCH',{status:'em_aberto', data_pagamento: null});
-  loadContasPagarReceber();
+function irParaLancamentosEmAberto() {
+  navigateTo('lancamentos');
+  setTimeout(() => { $('filter-status').value='em_aberto'; loadTransactions(false); }, 200);
 }
 
 // Endpoint interno para status de caixa (busca local nos dados já carregados)
@@ -668,10 +649,6 @@ async function fetchContasStatus(filtro) {
     return false;
   });
 }
-
-document.querySelectorAll('.cp-tab').forEach(btn => btn.addEventListener('click', () => setTabCP(btn.dataset.tab)));
-$('btn-filter-cp') && $('btn-filter-cp').addEventListener('click', loadContasPagarReceber);
-document.querySelector('#modal-baixa .modal-backdrop') && document.querySelector('#modal-baixa .modal-backdrop').addEventListener('click',()=>$('modal-baixa').classList.add('hidden'));
 
 // ─── LANÇAMENTOS ──────────────────────────────────────────────────────────────
 async function loadTransactions(reset) {
@@ -698,11 +675,11 @@ function renderTransactions(txs) {
   tbody.innerHTML=txs.map(t=>`<tr>
     <td>${t.date}</td>
     <td><span class="badge badge-${t.type==='income'?'income':'expense'}">${t.type==='income'?'Receita':'Despesa'}</span></td>
-    <td>${t.centro_custo||'—'}</td>
-    <td style="font-size:11.5px">${[t.grupo_contas,t.conta].filter(Boolean).join(' / ')||'—'}</td>
-    <td>${t.forma_pagamento||'—'}</td>
-    <td>${t.caixa_banco||'—'}</td>
-    <td>${t.cliente_fornecedor||'—'}</td>
+    <td>${esc(t.centro_custo)||'—'}</td>
+    <td style="font-size:11.5px">${esc([t.grupo_contas,t.conta].filter(Boolean).join(' / '))||'—'}</td>
+    <td>${esc(t.forma_pagamento)||'—'}</td>
+    <td>${esc(t.caixa_banco)||'—'}</td>
+    <td>${esc(t.cliente_fornecedor)||'—'}</td>
     <td style="font-weight:600;color:${t.type==='income'?'var(--green)':'var(--red)'}">${fmtBRL(t.amount)}</td>
     <td style="color:var(--red);font-size:11.5px">${t.taxa_mdr?fmtBRL(t.taxa_mdr):'—'}</td>
     <td style="font-weight:600">${fmtBRL(t.valor_liquido||t.amount)}</td>
@@ -776,6 +753,16 @@ $('modal-close') && $('modal-close').addEventListener('click',()=>$('modal-tx').
 document.querySelector('#modal-tx .modal-backdrop') && document.querySelector('#modal-tx .modal-backdrop').addEventListener('click',()=>$('modal-tx').classList.add('hidden'));
 
 // ─── TRANSFERÊNCIAS ───────────────────────────────────────────────────────────
+// Não tem mais menu próprio — vive como uma sub-aba dentro de Lançamentos.
+let _transfersCarregado = false;
+function setLancSubtab(sub) {
+  $('lanc-subtab-tx').classList.toggle('active', sub==='tx');
+  $('lanc-subtab-tr').classList.toggle('active', sub==='tr');
+  $('lanc-sub-tx').classList.toggle('hidden', sub!=='tx');
+  $('lanc-sub-tr').classList.toggle('hidden', sub!=='tr');
+  if (sub==='tr' && !_transfersCarregado) { _transfersCarregado = true; loadTransfers(true); }
+}
+
 async function loadTransfers(reset) {
   if(reset){$('tr-filter-month').value='';}
   const year=$('tr-filter-year').value, month=$('tr-filter-month').value;
@@ -789,8 +776,8 @@ async function loadTransfers(reset) {
   if (!tbody) return;
   if (!state.transfers.length) { tbody.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">Nenhuma transferência encontrada</td></tr>`; return; }
   tbody.innerHTML=state.transfers.map(t=>`<tr>
-    <td>${t.date}</td><td>${t.caixa_saida}</td><td>${t.caixa_entrada}</td>
-    <td style="font-weight:600">${fmtBRL(t.amount)}</td><td>${t.observacoes||'—'}</td>
+    <td>${t.date}</td><td>${esc(t.caixa_saida)}</td><td>${esc(t.caixa_entrada)}</td>
+    <td style="font-weight:600">${fmtBRL(t.amount)}</td><td>${esc(t.observacoes)||'—'}</td>
     <td><button class="action-btn del" onclick="deleteTr(${t.id})">✕</button></td>
   </tr>`).join('');
 }
@@ -873,24 +860,34 @@ async function loadFluxoCaixa() {
   const totDesp=data.reduce((s,d)=>s+d.despesa,0);
   const totRes=totRec-totDesp;
   const saldoFinal=data.length?data[data.length-1].saldo:0;
+  const saldoProjFinal=data.length?data[data.length-1].saldo_projetado:0;
   $('fluxo-rec').textContent=fmtBRL(totRec);
   $('fluxo-desp').textContent=fmtBRL(totDesp);
   $('fluxo-res').textContent=fmtBRL(totRes);
   $('fluxo-res').style.color=totRes>=0?'var(--green)':'var(--red)';
   $('fluxo-saldo').textContent=fmtBRL(saldoFinal);
   $('fluxo-saldo').style.color=saldoFinal>=0?'var(--green)':'var(--red)';
+  if ($('fluxo-saldo-proj')) {
+    $('fluxo-saldo-proj').textContent=fmtBRL(saldoProjFinal);
+    $('fluxo-saldo-proj').style.color=saldoProjFinal>=0?'var(--green)':'var(--red)';
+  }
   const tbody=document.querySelector('#fluxo-table tbody'); if(!tbody) return;
-  const hasData=data.some(d=>d.receita||d.despesa||d.transferencia);
-  tbody.innerHTML=data.filter(d=>d.receita||d.despesa||d.transferencia||true).map(d=>{
+  tbody.innerHTML=data.map(d=>{
     const rc=d.resultado>0?'val-pos':d.resultado<0?'val-neg':'val-0';
     const sc=d.saldo>0?'val-pos':d.saldo<0?'val-neg':'val-0';
-    const row=`<tr ${!d.receita&&!d.despesa&&!d.transferencia?'style="opacity:.45"':''}>
+    const previsto=d.previsto||0;
+    const pc=previsto>0?'val-pos':previsto<0?'val-neg':'val-0';
+    const spc=d.saldo_projetado>0?'val-pos':d.saldo_projetado<0?'val-neg':'val-0';
+    const semMovimento=!d.receita&&!d.despesa&&!d.transferencia&&!previsto;
+    const row=`<tr ${semMovimento?'style="opacity:.45"':''}>
       <td>${d.data.slice(5).split('-').reverse().join('/')}</td>
       <td class="${d.receita?'val-pos':''}">${d.receita?fmtBRL(d.receita):'—'}</td>
       <td class="${d.despesa?'val-neg':''}">${d.despesa?fmtBRL(d.despesa):'—'}</td>
       <td>${d.transferencia?fmtBRL(d.transferencia):'—'}</td>
       <td class="${rc}">${fmtBRL(d.resultado)}</td>
       <td class="${sc}"><strong>${fmtBRL(d.saldo)}</strong></td>
+      <td class="${pc}" style="font-size:11.5px">${previsto?fmtBRL(previsto):'—'}</td>
+      <td class="${spc}" style="font-size:11.5px">${fmtBRL(d.saldo_projetado)}</td>
     </tr>`;
     return row;
   }).join('');
@@ -900,30 +897,6 @@ $('fluxo-year') && $('fluxo-year').addEventListener('change', loadFluxoCaixa);
 $('fluxo-month') && $('fluxo-month').addEventListener('change', loadFluxoCaixa);
 
 // ─── CENTRO DE CUSTO ──────────────────────────────────────────────────────────
-async function loadCentroCusto() {
-  const year=$('cc-year').value, month=$('cc-month').value, centro=$('cc-centro').value;
-  let url='/dre/centro-custo'; const qs=[];
-  if(year) qs.push(`year=${year}`);
-  if(month) qs.push(`month=${month}`);
-  if(centro) qs.push(`centro=${encodeURIComponent(centro)}`);
-  if(qs.length) url+='?'+qs.join('&');
-  const data=await api(url);
-  const txs=data.transactions||[];
-  const tbody=document.querySelector('#cc-table tbody'); if(!tbody) return;
-  if (!txs.length) { tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-muted)">Nenhum lançamento encontrado</td></tr>`; return; }
-  tbody.innerHTML=txs.map(t=>`<tr>
-    <td>${t.date}</td>
-    <td><span class="badge badge-${t.type==='income'?'income':'expense'}">${t.type==='income'?'Receita':'Despesa'}</span></td>
-    <td>${t.centro_custo||'—'}</td>
-    <td>${t.grupo_contas||'—'}</td>
-    <td>${t.conta||'—'}</td>
-    <td>${t.forma_pagamento||'—'}</td>
-    <td style="font-weight:600;color:${t.type==='income'?'var(--green)':'var(--red)'}">${fmtBRL(t.amount)}</td>
-    <td><span class="badge ${t.status==='quitado'?'badge-ok':'badge-pend'}">${t.status==='quitado'?'Quitado':'Em Aberto'}</span></td>
-  </tr>`).join('');
-}
-$('btn-filter-cc') && $('btn-filter-cc').addEventListener('click', loadCentroCusto);
-
 // ─── FORMAS DE PAGAMENTO REL ──────────────────────────────────────────────────
 async function loadFormasPagamentoRel() {
   const year=$('fp-year').value;
@@ -947,32 +920,22 @@ const cadConfig = {
   clientes: {
     title:'Cliente',
     fields:[{k:'nome',l:'Nome *',type:'text'},{k:'cnpj_cpf',l:'CNPJ/CPF',type:'text'},{k:'estado',l:'Estado',type:'text'},{k:'cidade',l:'Cidade',type:'text'},{k:'telefone',l:'Telefone',type:'text'},{k:'email',l:'E-mail',type:'email'},{k:'observacoes',l:'Observações',type:'text',span:true}],
-    table:(items)=>items.map(i=>`<tr><td>${i.nome}</td><td>${i.cnpj_cpf||'—'}</td><td>${i.cidade||'—'}</td><td>${i.estado||'—'}</td><td>${i.telefone||'—'}</td><td>${i.email||'—'}</td><td><button class="action-btn" onclick="editCad('clientes',${i.id})">✎</button><button class="action-btn del" onclick="delCad('clientes',${i.id})">✕</button></td></tr>`).join(''),
+    table:(items)=>items.map(i=>`<tr><td>${esc(i.nome)}</td><td>${esc(i.cnpj_cpf)||'—'}</td><td>${esc(i.cidade)||'—'}</td><td>${esc(i.estado)||'—'}</td><td>${esc(i.telefone)||'—'}</td><td>${esc(i.email)||'—'}</td><td><button class="action-btn" onclick="editCad('clientes',${i.id})">✎</button><button class="action-btn del" onclick="delCad('clientes',${i.id})">✕</button></td></tr>`).join(''),
   },
   fornecedores: {
     title:'Fornecedor',
     fields:[{k:'nome',l:'Nome *',type:'text'},{k:'cnpj_cpf',l:'CNPJ/CPF',type:'text'},{k:'estado',l:'Estado',type:'text'},{k:'cidade',l:'Cidade',type:'text'},{k:'telefone',l:'Telefone',type:'text'},{k:'email',l:'E-mail',type:'email'},{k:'observacoes',l:'Observações',type:'text',span:true}],
-    table:(items)=>items.map(i=>`<tr><td>${i.nome}</td><td>${i.cnpj_cpf||'—'}</td><td>${i.cidade||'—'}</td><td>${i.estado||'—'}</td><td>${i.telefone||'—'}</td><td>${i.email||'—'}</td><td><button class="action-btn" onclick="editCad('fornecedores',${i.id})">✎</button><button class="action-btn del" onclick="delCad('fornecedores',${i.id})">✕</button></td></tr>`).join(''),
+    table:(items)=>items.map(i=>`<tr><td>${esc(i.nome)}</td><td>${esc(i.cnpj_cpf)||'—'}</td><td>${esc(i.cidade)||'—'}</td><td>${esc(i.estado)||'—'}</td><td>${esc(i.telefone)||'—'}</td><td>${esc(i.email)||'—'}</td><td><button class="action-btn" onclick="editCad('fornecedores',${i.id})">✎</button><button class="action-btn del" onclick="delCad('fornecedores',${i.id})">✕</button></td></tr>`).join(''),
   },
   caixas: {
     title:'Caixa / Banco',
     fields:[{k:'nome',l:'Nome *',type:'text'},{k:'saldo_inicial',l:'Saldo Inicial (R$)',type:'number'}],
-    table:(items)=>items.map(i=>`<tr><td>${i.nome}</td><td>${fmtBRL(i.saldo_inicial||0)}</td><td><button class="action-btn" onclick="editCad('caixas',${i.id})">✎</button><button class="action-btn del" onclick="delCad('caixas',${i.id})">✕</button></td></tr>`).join(''),
+    table:(items)=>items.map(i=>`<tr><td>${esc(i.nome)}</td><td>${fmtBRL(i.saldo_inicial||0)}</td><td><button class="action-btn" onclick="editCad('caixas',${i.id})">✎</button><button class="action-btn del" onclick="delCad('caixas',${i.id})">✕</button></td></tr>`).join(''),
   },
   formas_pagamento: {
     title:'Forma de Pagamento',
-    fields:[{k:'nome',l:'Nome *',type:'text'},{k:'parcelas',l:'Parcelas',type:'number'},{k:'dias_recebimento',l:'Dias para Recebimento',type:'number'},{k:'taxa_intermediacao',l:'Taxa Intermediação %',type:'number'},{k:'taxa_parcelamento',l:'Taxa Parcelamento %',type:'number'},{k:'tarifa_fixa',l:'Tarifa Fixa R$',type:'number'}],
-    table:(items)=>items.map(i=>`<tr><td>${i.nome}</td><td>${i.parcelas||1}x</td><td>${i.dias_recebimento||0}d</td><td>${i.taxa_intermediacao||0}%</td><td>${i.taxa_parcelamento||0}%</td><td>${fmtBRL(i.tarifa_fixa||0)}</td><td><button class="action-btn" onclick="editCad('formas_pagamento',${i.id})">✎</button><button class="action-btn del" onclick="delCad('formas_pagamento',${i.id})">✕</button></td></tr>`).join(''),
-  },
-  contas_receita: {
-    title:'Conta de Receita',
-    fields:[{k:'grupo',l:'Grupo *',type:'text'},{k:'conta',l:'Conta',type:'text'}],
-    table:(items)=>items.map(i=>`<tr><td>${i.grupo}</td><td>${i.conta||'—'}</td><td><button class="action-btn" onclick="editCad('contas_receita',${i.id})">✎</button><button class="action-btn del" onclick="delCad('contas_receita',${i.id})">✕</button></td></tr>`).join(''),
-  },
-  contas_despesa: {
-    title:'Conta de Despesa',
-    fields:[{k:'grupo',l:'Grupo *',type:'text'},{k:'conta',l:'Conta',type:'text'}],
-    table:(items)=>items.map(i=>`<tr><td>${i.grupo}</td><td>${i.conta||'—'}</td><td><button class="action-btn" onclick="editCad('contas_despesa',${i.id})">✎</button><button class="action-btn del" onclick="delCad('contas_despesa',${i.id})">✕</button></td></tr>`).join(''),
+    fields:[{k:'nome',l:'Nome *',type:'text'},{k:'banco',l:'Banco',type:'text'},{k:'agencia',l:'Agência',type:'text'},{k:'parcelas',l:'Parcelas',type:'number'},{k:'dias_recebimento',l:'Dias para Recebimento',type:'number'},{k:'taxa_intermediacao',l:'Taxa Intermediação %',type:'number'},{k:'taxa_parcelamento',l:'Taxa Parcelamento %',type:'number'},{k:'tarifa_fixa',l:'Tarifa Fixa R$',type:'number'}],
+    table:(items)=>items.map(i=>`<tr><td>${esc(i.nome)}</td><td>${esc(i.banco)||'—'}</td><td>${esc(i.agencia)||'—'}</td><td>${i.parcelas||1}x</td><td>${i.dias_recebimento||0}d</td><td>${i.taxa_intermediacao||0}%</td><td>${i.taxa_parcelamento||0}%</td><td>${fmtBRL(i.tarifa_fixa||0)}</td><td><button class="action-btn" onclick="editCad('formas_pagamento',${i.id})">✎</button><button class="action-btn del" onclick="delCad('formas_pagamento',${i.id})">✕</button></td></tr>`).join(''),
   },
 };
 
@@ -990,11 +953,6 @@ async function loadCad(table) {
   tbodyEl.innerHTML=conf.table(currentCadItems);
   // update full formas for taxa calc
   if (table==='formas_pagamento') state.cadastros._formasFull=currentCadItems;
-}
-
-async function loadCadContas() {
-  await loadCad('contas_receita');
-  await loadCad('contas_despesa');
 }
 
 function openCadModal(table, id=null) {
@@ -1026,106 +984,401 @@ $('btn-save-cad') && $('btn-save-cad').addEventListener('click', async()=>{
   $('modal-cad').classList.add('hidden');
   await loadCad(currentCadTable);
   await loadCadastros();
-  if(currentCadTable==='contas_receita'||currentCadTable==='contas_despesa') loadCad('contas_receita'),loadCad('contas_despesa');
 });
 
-// ─── IMPORT / EXPORT ─────────────────────────────────────────────────────────
-async function loadImports() {
-  const imports=await api('/imports');
-  const el=$('imports-list');
-  if (!Array.isArray(imports)||!imports.length){el.innerHTML='<p style="color:var(--text-muted);font-size:12px">Nenhuma importação ainda</p>';return;}
-  el.innerHTML=imports.map(i=>`<div class="import-item">
-    <div><div class="fname">📄 ${i.filename}</div><div class="fdate">${new Date(i.uploaded_at).toLocaleString('pt-BR')}</div></div>
-    <button class="btn-outline" style="font-size:11px;padding:4px 10px" onclick="reloadSheet(${i.id},'${i.filename}')">Ver</button>
+// ─── CADASTROS: PARCEIROS (com anexos) ───────────────────────────────────────
+let currentParceiroId = null, currentParceiros = [];
+
+// Máscaras simples (sem libs externas): formatam enquanto o usuário digita e
+// limitam a quantidade de dígitos aceitos.
+function maskCNPJ(v) {
+  v = v.replace(/\D/g, '').slice(0, 14);
+  if (v.length <= 2)  return v;
+  if (v.length <= 5)  return `${v.slice(0,2)}.${v.slice(2)}`;
+  if (v.length <= 8)  return `${v.slice(0,2)}.${v.slice(2,5)}.${v.slice(5)}`;
+  if (v.length <= 12) return `${v.slice(0,2)}.${v.slice(2,5)}.${v.slice(5,8)}/${v.slice(8)}`;
+  return `${v.slice(0,2)}.${v.slice(2,5)}.${v.slice(5,8)}/${v.slice(8,12)}-${v.slice(12)}`;
+}
+function maskTelefone(v) {
+  v = v.replace(/\D/g, '').slice(0, 11);
+  if (!v) return '';
+  if (v.length <= 2)  return `(${v}`;
+  if (v.length <= 6)  return `(${v.slice(0,2)}) ${v.slice(2)}`;
+  if (v.length <= 10) return `(${v.slice(0,2)}) ${v.slice(2,6)}-${v.slice(6)}`;
+  return `(${v.slice(0,2)}) ${v.slice(2,7)}-${v.slice(7)}`;
+}
+['parc-cnpj'].forEach(id => $(id) && $(id).addEventListener('input', e => { e.target.value = maskCNPJ(e.target.value); }));
+['parc-contato','parc-whatsapp'].forEach(id => $(id) && $(id).addEventListener('input', e => { e.target.value = maskTelefone(e.target.value); }));
+$('parc-comissao') && $('parc-comissao').addEventListener('blur', e => {
+  if (e.target.value === '') return;
+  let v = parseFloat(e.target.value);
+  if (isNaN(v)) { e.target.value = ''; return; }
+  v = Math.max(0, v);
+  e.target.value = v.toFixed(2);
+});
+
+// Renderiza a pré-visualização (imagem, se for arquivo de imagem, ou ícone de
+// documento) tanto pro arquivo recém-selecionado quanto pro já salvo no servidor.
+function renderAnexoPreview(kind, file, existingPath) {
+  const wrap = $(`parc-${kind}-preview`);
+  if (!wrap) return;
+  let url = null, isImage = false;
+  if (file) {
+    url = URL.createObjectURL(file);
+    isImage = file.type.startsWith('image/');
+  } else if (existingPath) {
+    url = existingPath;
+    isImage = /\.(png|jpe?g|gif|webp)$/i.test(existingPath);
+  }
+  if (!url) { wrap.innerHTML = ''; wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = isImage
+    ? `<img src="${url}" class="file-preview-img" alt="pré-visualização"/>`
+    : `<div class="file-preview-doc">📄</div>`;
+}
+
+async function loadParceiros() {
+  const items = await api('/parceiros');
+  currentParceiros = Array.isArray(items) ? items : [];
+  const tbody = document.querySelector('#cad-parceiros-table tbody');
+  if (!tbody) return;
+  if (!currentParceiros.length) { tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text-muted)">Nenhum parceiro cadastrado</td></tr>`; return; }
+  tbody.innerHTML = currentParceiros.map(p => `
+    <tr>
+      <td>${esc(p.nome)}</td>
+      <td>${esc(p.razao_social)}</td>
+      <td>${esc(p.cnpj)}</td>
+      <td>${esc(p.responsavel)}</td>
+      <td>${esc(p.contato)}</td>
+      <td>${esc(p.whatsapp)||'—'}</td>
+      <td>${p.comissao ? fmtBRL(p.comissao) : '—'}</td>
+      <td>${p.foto_path?`<a href="${p.foto_path}" target="_blank" class="anexo-thumb" title="Ver foto"><img src="${p.foto_path}" alt="foto"/></a>`:''}${p.contrato_path?`<a href="${p.contrato_path}" target="_blank" class="anexo-doc-link" title="Ver contrato">📎</a>`:''}${(!p.foto_path&&!p.contrato_path)?'—':''}</td>
+      <td><button class="action-btn" onclick="editParceiro(${p.id})">✎</button><button class="action-btn del" onclick="delParceiro(${p.id})">✕</button></td>
+    </tr>`).join('');
+}
+
+function openParceiroModal(id=null) {
+  currentParceiroId = id;
+  const item = id ? currentParceiros.find(p => p.id === id) : null;
+  $('parceiro-modal-title').textContent = id ? 'Editar Parceiro' : 'Novo Parceiro';
+  $('parceiro-modal-error').textContent = '';
+  $('parc-nome').value         = item ? item.nome || ''         : '';
+  $('parc-razao-social').value = item ? item.razao_social || '' : '';
+  $('parc-cnpj').value         = item ? maskCNPJ(item.cnpj || '')          : '';
+  $('parc-email').value        = item ? item.email || ''        : '';
+  $('parc-endereco').value     = item ? item.endereco || ''     : '';
+  $('parc-comissao').value     = item ? item.comissao || ''     : '';
+  $('parc-contato').value      = item ? maskTelefone(item.contato || '')   : '';
+  $('parc-whatsapp').value     = item ? maskTelefone(item.whatsapp || '')  : '';
+  $('parc-responsavel').value  = item ? item.responsavel || ''  : '';
+  $('parc-foto-input').value = '';
+  $('parc-contrato-input').value = '';
+  $('parc-foto-name').textContent     = item && item.foto_nome     ? item.foto_nome     : 'Nenhum arquivo';
+  $('parc-contrato-name').textContent = item && item.contrato_nome ? item.contrato_nome : 'Nenhum arquivo';
+  renderAnexoPreview('foto', null, item ? item.foto_path : null);
+  renderAnexoPreview('contrato', null, item ? item.contrato_path : null);
+  $('modal-parceiro').classList.remove('hidden');
+}
+
+function editParceiro(id) { openParceiroModal(id); }
+
+async function delParceiro(id) {
+  if (!confirm('Excluir este parceiro?')) return;
+  await api(`/parceiros/${id}`, 'DELETE');
+  loadParceiros();
+}
+
+$('parc-foto-input') && $('parc-foto-input').addEventListener('change', () => {
+  const f = $('parc-foto-input').files[0];
+  $('parc-foto-name').textContent = f ? f.name : 'Nenhum arquivo';
+  renderAnexoPreview('foto', f || null, f ? null : (currentParceiroId ? (currentParceiros.find(p=>p.id===currentParceiroId)||{}).foto_path : null));
+});
+$('parc-contrato-input') && $('parc-contrato-input').addEventListener('change', () => {
+  const f = $('parc-contrato-input').files[0];
+  $('parc-contrato-name').textContent = f ? f.name : 'Nenhum arquivo';
+  renderAnexoPreview('contrato', f || null, f ? null : (currentParceiroId ? (currentParceiros.find(p=>p.id===currentParceiroId)||{}).contrato_path : null));
+});
+
+// Anexos exigem multipart/form-data — não dá pra usar o helper api() (que só
+// manda JSON), então esse envio vai direto por fetch com FormData.
+$('btn-save-parceiro') && $('btn-save-parceiro').addEventListener('click', async () => {
+  const nome        = $('parc-nome').value.trim();
+  const razaoSocial = $('parc-razao-social').value.trim();
+  const cnpj        = $('parc-cnpj').value.trim();
+  const responsavel = $('parc-responsavel').value.trim();
+  const contato     = $('parc-contato').value.trim();
+  if (!nome || !razaoSocial || !cnpj || !responsavel || !contato) {
+    $('parceiro-modal-error').textContent = 'Preencha os campos obrigatórios: Nome, Razão Social, CNPJ, Responsável e Contato.';
+    return;
+  }
+  let comissao = $('parc-comissao').value;
+  comissao = comissao === '' ? 0 : Math.max(0, parseFloat(comissao) || 0);
+  const fd = new FormData();
+  fd.append('nome', nome);
+  fd.append('razao_social', razaoSocial);
+  fd.append('cnpj', cnpj);
+  fd.append('email', $('parc-email').value.trim());
+  fd.append('endereco', $('parc-endereco').value.trim());
+  fd.append('comissao', comissao);
+  fd.append('contato', contato);
+  fd.append('whatsapp', $('parc-whatsapp').value.trim());
+  fd.append('responsavel', responsavel);
+  const fotoFile     = $('parc-foto-input').files[0];
+  const contratoFile = $('parc-contrato-input').files[0];
+  if (fotoFile)     fd.append('foto', fotoFile);
+  if (contratoFile) fd.append('contrato', contratoFile);
+
+  try {
+    const url    = currentParceiroId ? `/api/parceiros/${currentParceiroId}` : '/api/parceiros';
+    const method = currentParceiroId ? 'PUT' : 'POST';
+    const res    = await fetch(url, { method, credentials: 'include', body: fd });
+    const data   = await res.json().catch(() => ({}));
+    if (res.status === 401) { showAuth(); return; }
+    if (data.error) { $('parceiro-modal-error').textContent = 'Erro: ' + data.error; return; }
+    $('modal-parceiro').classList.add('hidden');
+    loadParceiros();
+  } catch (e) {
+    $('parceiro-modal-error').textContent = 'Erro ao salvar parceiro.';
+  }
+});
+
+// ─── DOCUMENTOS (Importar/Exportar) ────────────────────────────────────────────
+// Substitui a antiga importação de planilha: 3 tipos de documento, cada um
+// podendo vincular a um parceiro ou fornecedor já cadastrado.
+const DOC_TIPOS = {
+  contrato_parceiro:   { label: 'Contrato de Parceiro',   vinculo: 'parceiro' },
+  nota_fiscal:         { label: 'Nota Fiscal',            vinculo: null },
+  contrato_fornecedor: { label: 'Contrato de Fornecedor', vinculo: 'fornecedor' },
+};
+let currentDocTipo = 'contrato_parceiro';
+
+async function setDocSubtab(tipo) {
+  currentDocTipo = tipo;
+  Object.keys(DOC_TIPOS).forEach(t => $(`doc-subtab-${t}`) && $(`doc-subtab-${t}`).classList.toggle('active', t===tipo));
+  $('doc-panel-title').textContent = DOC_TIPOS[tipo].label;
+  $('doc-file-input').value = '';
+  $('doc-file-name').textContent = 'Nenhum arquivo';
+  $('doc-descricao').value = '';
+  $('doc-upload-error').textContent = '';
+
+  const vinculo = DOC_TIPOS[tipo].vinculo;
+  if (!vinculo) {
+    $('doc-vinculo-wrap').classList.add('hidden');
+  } else {
+    $('doc-vinculo-wrap').classList.remove('hidden');
+    $('doc-vinculo-label').textContent = vinculo === 'parceiro' ? 'Parceiro' : 'Fornecedor';
+    const items = vinculo === 'parceiro' ? await api('/parceiros') : await api('/fornecedores');
+    const opts = (Array.isArray(items)?items:[]).map(i => `<option value="${i.id}">${esc(i.nome)}</option>`).join('');
+    $('doc-vinculo').innerHTML = `<option value="">Selecione...</option>${opts}`;
+  }
+  loadDocumentos(tipo);
+}
+
+async function loadDocumentos(tipo) {
+  const docs = await api(`/documentos?tipo=${tipo}`);
+  const el = $('documentos-list');
+  const lista = Array.isArray(docs) ? docs : [];
+  if (!lista.length) { el.innerHTML = '<p style="color:var(--text-muted);font-size:12px">Nenhum documento enviado ainda</p>'; return; }
+  el.innerHTML = lista.map(d => `<div class="import-item">
+    <div><div class="fname">📄 ${esc(d.descricao) || esc(d.parceiro_nome) || esc(d.fornecedor_nome) || esc(d.arquivo_nome)}</div>
+      <div class="fdate">${esc(d.parceiro_nome||d.fornecedor_nome||'')}${(d.parceiro_nome||d.fornecedor_nome)?' · ':''}${new Date(d.created_at).toLocaleString('pt-BR')}</div></div>
+    <div style="display:flex;gap:6px">
+      <a class="btn-outline" style="font-size:11px;padding:4px 10px;text-decoration:none" href="${d.arquivo_path}" target="_blank">Ver</a>
+      <button class="btn-outline" style="font-size:11px;padding:4px 10px;color:var(--red);border-color:var(--red)" onclick="deleteDocumento(${d.id})">Excluir</button>
+    </div>
   </div>`).join('');
 }
 
-const dropZone=$('drop-zone'),fileInput=$('file-input');
-if(dropZone){
-  dropZone.addEventListener('click',()=>fileInput&&fileInput.click());
-  dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('over')});
-  dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('over'));
-  dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('over');uploadFile(e.dataTransfer.files[0])});
+async function deleteDocumento(id) {
+  if (!confirm('Excluir este documento?')) return;
+  await api(`/documentos/${id}`, 'DELETE');
+  loadDocumentos(currentDocTipo);
 }
-if(fileInput) fileInput.addEventListener('change',()=>{if(fileInput.files[0])uploadFile(fileInput.files[0])});
 
-async function uploadFile(file) {
-  if(!file) return;
-  setImportStatus(`Carregando "${file.name}"…`,'loading');
-  $('sheet-tabs-wrap').classList.add('hidden');
-  const form=new FormData(); form.append('file',file);
-  const res=await fetch('/api/import',{method:'POST',body:form,credentials:'include'});
-  const data=await res.json().catch(()=>({}));
-  if(data.error){setImportStatus('Erro: '+data.error,'error');return;}
-  setImportStatus(`✓ "${data.filename}" — ${data.sheets.length} aba(s) importada(s)`,'success');
-  renderSheetTabs(data.sheets.map(s=>s.name), data.sheetId);
-  loadImports();
-}
-function setImportStatus(msg,type){const el=$('import-status');el.textContent=msg;el.className='import-status '+type;el.classList.remove('hidden');}
-function renderSheetTabs(names,sheetId){
-  $('sheet-tabs').innerHTML=names.map((n,i)=>`<div class="sheet-tab ${i===0?'active':''}" onclick="loadSheet(${sheetId},'${n}',this)">${n}</div>`).join('');
-  $('sheet-tabs-wrap').classList.remove('hidden');
-  if(names.length) loadSheet(sheetId,names[0],$('sheet-tabs').querySelector('.sheet-tab'));
-}
-async function reloadSheet(sid,fname){
-  const sheets=await api(`/import/${sid}/sheets`);
-  renderSheetTabs(Array.isArray(sheets)?sheets:[],sid);
-  setImportStatus(`Planilha "${fname}" carregada`,'success');
-}
-async function loadSheet(sid,name,tabEl){
-  document.querySelectorAll('.sheet-tab').forEach(t=>t.classList.remove('active'));
-  if(tabEl) tabEl.classList.add('active');
-  const rows=await api(`/import/${sid}/data/${encodeURIComponent(name)}`);
-  if(!Array.isArray(rows)||!rows.length){$('sheet-table').innerHTML='<thead></thead><tbody><tr><td>Sem dados</td></tr></tbody>';return;}
-  const maxCols=Math.max(...rows.map(r=>r.data.length));
-  const header=rows[0]?.data||[];
-  $('sheet-table').querySelector('thead').innerHTML='<tr>'+header.map((h,i)=>`<th>${h!==null?h:`Col${i+1}`}</th>`).join('')+'</tr>';
-  $('sheet-table').querySelector('tbody').innerHTML=rows.slice(1).map(r=>'<tr>'+Array.from({length:maxCols},(_,i)=>`<td>${r.data[i]!==null&&r.data[i]!==undefined?r.data[i]:''}</td>`).join('')+'</tr>').join('');
-}
+$('doc-file-input') && $('doc-file-input').addEventListener('change', () => {
+  const f = $('doc-file-input').files[0];
+  $('doc-file-name').textContent = f ? f.name : 'Nenhum arquivo';
+});
+
+// Upload precisa de multipart/form-data — não dá pra usar o helper api() (que
+// só manda JSON) — mesmo padrão usado nos anexos de Parceiros e no Perfil.
+$('btn-upload-doc') && $('btn-upload-doc').addEventListener('click', async () => {
+  const file = $('doc-file-input').files[0];
+  if (!file) { $('doc-upload-error').textContent = 'Selecione um arquivo.'; return; }
+  const vinculo = DOC_TIPOS[currentDocTipo].vinculo;
+  if (vinculo && !$('doc-vinculo').value) {
+    $('doc-upload-error').textContent = `Selecione o ${vinculo === 'parceiro' ? 'parceiro' : 'fornecedor'}.`;
+    return;
+  }
+  const fd = new FormData();
+  fd.append('tipo', currentDocTipo);
+  fd.append('descricao', $('doc-descricao').value.trim());
+  if (vinculo === 'parceiro')   fd.append('parceiro_id', $('doc-vinculo').value);
+  if (vinculo === 'fornecedor') fd.append('fornecedor_id', $('doc-vinculo').value);
+  fd.append('arquivo', file);
+
+  try {
+    const res  = await fetch('/api/documentos', { method: 'POST', credentials: 'include', body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { showAuth(); return; }
+    if (data.error) { $('doc-upload-error').textContent = 'Erro: ' + data.error; return; }
+    $('doc-file-input').value = ''; $('doc-file-name').textContent = 'Nenhum arquivo'; $('doc-descricao').value = '';
+    loadDocumentos(currentDocTipo);
+  } catch (e) {
+    $('doc-upload-error').textContent = 'Erro ao enviar documento.';
+  }
+});
 
 document.querySelectorAll('.export-btn').forEach(btn=>btn.addEventListener('click',()=>{
   window.open(`/api/export/${btn.dataset.fmt}?year=${$('export-year').value}`,'_blank');
 }));
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
+let currentEditUserId = null, usersCache = [];
+
 async function loadUsers(){
   const users=await api('/users');
-  const utbody=document.querySelector('#users-table tbody'); if(!utbody) return; utbody.innerHTML=(Array.isArray(users)?users:[]).map(u=>`<tr>
-    <td>${u.id}</td><td>${u.username}</td>
+  usersCache = Array.isArray(users) ? users : [];
+  const utbody=document.querySelector('#users-table tbody'); if(!utbody) return; utbody.innerHTML=usersCache.map(u=>`<tr>
+    <td>${u.id}</td><td>${esc(u.username)}</td>
     <td><span class="badge ${u.role==='admin'?'badge-admin':'badge-pend'}">${u.role==='admin'?'Admin':'Usuário'}</span></td>
     <td>${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
-    <td>${u.id!==state.user.id?`<button class="action-btn" onclick="toggleRole(${u.id},'${u.role}')" title="${u.role==='admin'?'Rebaixar':'Promover'}">${u.role==='admin'?'↓':'↑'}</button><button class="action-btn del" onclick="deleteUser(${u.id})">✕</button>`:'<span style="color:var(--text-muted);font-size:11px">(você)</span>'}</td>
+    <td>${u.id!==state.user.id?`<button class="action-btn" onclick="openEditUser(${u.id})" title="Editar">✎</button><button class="action-btn" onclick="toggleRole(${u.id},'${u.role}')" title="${u.role==='admin'?'Rebaixar':'Promover'}">${u.role==='admin'?'↓':'↑'}</button><button class="action-btn del" onclick="deleteUser(${u.id})">✕</button>`:'<span style="color:var(--text-muted);font-size:11px">(você)</span>'}</td>
   </tr>`).join('');
 }
 async function toggleRole(id,role){if(!confirm(`Alterar para "${role==='admin'?'user':'admin'}"?`))return;await api(`/users/${id}/role`,'PUT',{role:role==='admin'?'user':'admin'});loadUsers();}
 async function deleteUser(id){if(!confirm('Excluir usuário?'))return;await api(`/users/${id}`,'DELETE');loadUsers();}
 
 function openUserModal(){
+  currentEditUserId = null;
+  $('cad-usuario-title').textContent = 'Novo Usuário';
+  $('user-field-password-label').textContent = 'Senha';
+  $('user-field-password').placeholder = 'senha (mín. 4 caracteres)';
+  $('btn-save-user').textContent = 'Criar usuário';
   $('user-field-username').value=''; $('user-field-password').value=''; $('user-field-role').value='user';
   $('user-modal-error').textContent='';
-  $('modal-user').classList.remove('hidden');
+  renderPermissoesCheckboxes([]);
+  $('user-permissoes-wrap').classList.remove('hidden');
+  navigateTo('cad-usuario');
+}
+function openEditUser(id) {
+  const u = usersCache.find(x => x.id === id);
+  if (!u) return;
+  currentEditUserId = id;
+  $('cad-usuario-title').textContent = `Editar Usuário`;
+  $('user-field-password-label').textContent = 'Nova Senha';
+  $('user-field-password').placeholder = 'deixe em branco para não alterar';
+  $('btn-save-user').textContent = 'Salvar alterações';
+  $('user-field-username').value = u.username;
+  $('user-field-password').value = '';
+  $('user-field-role').value = u.role;
+  $('user-modal-error').textContent = '';
+  renderPermissoesCheckboxes(u.permissoes || []);
+  $('user-permissoes-wrap').classList.toggle('hidden', u.role === 'admin');
+  navigateTo('cad-usuario');
 }
 $('btn-new-user') && $('btn-new-user').addEventListener('click', openUserModal);
+$('btn-cancel-user') && $('btn-cancel-user').addEventListener('click', () => navigateTo('users'));
+
+// Renderiza os checkboxes de telas permitidas (usado ao abrir a tela de novo/editar usuário).
+function renderPermissoesCheckboxes(selecionadas = []) {
+  const wrap = $('user-permissoes-list');
+  if (!wrap) return;
+  wrap.innerHTML = PAGINAS_PERMISSAO.map(p => `
+    <label class="perm-item">
+      <input type="checkbox" value="${p.key}" ${selecionadas.includes(p.key) ? 'checked' : ''}/>
+      ${esc(p.label)}
+    </label>`).join('');
+}
+function getPermissoesSelecionadas() {
+  return Array.from(document.querySelectorAll('#user-permissoes-list input[type=checkbox]:checked')).map(i => i.value);
+}
+// Admin tem acesso total por natureza — some com a lista de telas nesse caso.
+$('user-field-role') && $('user-field-role').addEventListener('change', () => {
+  $('user-permissoes-wrap').classList.toggle('hidden', $('user-field-role').value === 'admin');
+});
+
 $('btn-save-user') && $('btn-save-user').addEventListener('click', async()=>{
   const body={
     username: $('user-field-username').value.trim(),
     password: $('user-field-password').value,
     role: $('user-field-role').value,
   };
-  if(!body.username || !body.password){ $('user-modal-error').textContent='Preencha usuário e senha.'; return; }
-  const r=await api('/users','POST',body);
-  if(r.error){ $('user-modal-error').textContent=r.error; return; }
-  $('modal-user').classList.add('hidden');
+  if (body.role !== 'admin') body.permissoes = getPermissoesSelecionadas();
+
+  if (currentEditUserId) {
+    if(!body.username){ $('user-modal-error').textContent='Preencha o usuário.'; return; }
+    const r=await api(`/users/${currentEditUserId}`,'PUT',body);
+    if(r.error){ $('user-modal-error').textContent=r.error; return; }
+  } else {
+    if(!body.username || !body.password){ $('user-modal-error').textContent='Preencha usuário e senha.'; return; }
+    const r=await api('/users','POST',body);
+    if(r.error){ $('user-modal-error').textContent=r.error; return; }
+  }
+  navigateTo('users');
   loadUsers();
 });
 
+// ─── LOGS ─────────────────────────────────────────────────────────────────────
+const ACTION_LABELS = {
+  login:'Login', login_failed:'Login falhou', logout:'Logout', create:'Criação',
+  update:'Edição', delete:'Exclusão', baixa:'Baixa de título', update_status:'Alteração de status',
+  update_role:'Alteração de função', setup_admin:'Config. inicial',
+};
+const ENTITY_LABELS = {
+  auth:'Autenticação', users:'Usuários', transactions:'Lançamento', transfers:'Transferência',
+  clientes:'Cliente', fornecedores:'Fornecedor', caixas:'Caixa/Banco', formas_pagamento:'Forma de Pagamento',
+  contas_receita:'Conta de Receita', contas_despesa:'Conta de Despesa', centros_custo:'Centro de Custo',
+};
+let currentLogPage = 1;
+
+function fmtLogDate(v){
+  if(!v) return '—';
+  const d = new Date(v);
+  return isNaN(d) ? String(v) : d.toLocaleString('pt-BR');
+}
+
+async function loadLogs(page=1){
+  currentLogPage = page;
+  const qs = [`page=${page}`, `limit=50`];
+  const action = $('log-action') && $('log-action').value;
+  const username = $('log-username') && $('log-username').value.trim();
+  const from = $('log-from') && $('log-from').value;
+  const to = $('log-to') && $('log-to').value;
+  if (action) qs.push(`action=${encodeURIComponent(action)}`);
+  if (username) qs.push(`username=${encodeURIComponent(username)}`);
+  if (from) qs.push(`from=${encodeURIComponent(from)}`);
+  if (to) qs.push(`to=${encodeURIComponent(to)}`);
+
+  const r = await api(`/logs?${qs.join('&')}`);
+  const rows = (r && Array.isArray(r.rows)) ? r.rows : [];
+  const tbody = document.querySelector('#logs-table tbody');
+  if (tbody) {
+    tbody.innerHTML = rows.length ? rows.map(l => `<tr>
+      <td style="white-space:nowrap">${fmtLogDate(l.created_at)}</td>
+      <td>${esc(l.username)||'—'}</td>
+      <td><span class="badge badge-log-${esc(l.action)}">${esc(ACTION_LABELS[l.action]||l.action)}</span></td>
+      <td>${esc(ENTITY_LABELS[l.entity]||l.entity)}${l.entity_id?` #${l.entity_id}`:''}</td>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(l.details)||''}">${esc(l.details)||'—'}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${esc(l.ip)||'—'}</td>
+    </tr>`).join('') : `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted)">Nenhum log encontrado</td></tr>`;
+  }
+  if ($('log-page-info')) $('log-page-info').textContent = `Página ${r.page||1} de ${r.pages||1} (${r.total||0} registros)`;
+  if ($('btn-log-prev')) $('btn-log-prev').disabled = (r.page||1) <= 1;
+  if ($('btn-log-next')) $('btn-log-next').disabled = (r.page||1) >= (r.pages||1);
+}
+$('btn-log-filter') && $('btn-log-filter').addEventListener('click', ()=>loadLogs(1));
+$('btn-log-prev') && $('btn-log-prev').addEventListener('click', ()=>{ if(currentLogPage>1) loadLogs(currentLogPage-1); });
+$('btn-log-next') && $('btn-log-next').addEventListener('click', ()=>loadLogs(currentLogPage+1));
+
 // ─── GLOBALS ──────────────────────────────────────────────────────────────────
 window.editTx=editTx; window.deleteTx=deleteTx;
-window.deleteTr=deleteTr; window.loadSheet=loadSheet; window.reloadSheet=reloadSheet;
-window.toggleRole=toggleRole; window.deleteUser=deleteUser;
+window.deleteTr=deleteTr;
+window.toggleRole=toggleRole; window.deleteUser=deleteUser; window.openEditUser=openEditUser;
 window.openCadModal=openCadModal; window.editCad=editCad; window.delCad=delCad;
-window.navigateTo=navigateTo; window.setTabCP=setTabCP;
-window.openModalBaixa=openModalBaixa; window.reabrirTitulo=reabrirTitulo;
+window.openParceiroModal=openParceiroModal; window.editParceiro=editParceiro; window.delParceiro=delParceiro;
+window.navigateTo=navigateTo; window.setLancSubtab=setLancSubtab; window.irParaLancamentosEmAberto=irParaLancamentosEmAberto;
+window.setDocSubtab=setDocSubtab; window.deleteDocumento=deleteDocumento;
 
 checkAuth();
 

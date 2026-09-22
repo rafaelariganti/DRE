@@ -54,6 +54,9 @@ async function initDb() {
   // 3) Cria tabelas
   await criarTabelas();
 
+  // 3b) Migra colunas novas em tabelas já existentes (perfil de usuário)
+  await migrarColunasUsers();
+
   // 4) Seed inicial
   await seedDados();
 
@@ -103,6 +106,26 @@ async function criarTabelas() {
         email       VARCHAR(150),
         observacoes TEXT,
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS parceiros (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        nome          VARCHAR(255) NOT NULL,
+        razao_social  VARCHAR(255) NOT NULL,
+        cnpj          VARCHAR(30) NOT NULL,
+        email         VARCHAR(150),
+        endereco      VARCHAR(255),
+        comissao      DECIMAL(8,2) DEFAULT 0,
+        contato       VARCHAR(150) NOT NULL,
+        whatsapp      VARCHAR(30),
+        responsavel   VARCHAR(150) NOT NULL,
+        foto_path     VARCHAR(255),
+        foto_nome     VARCHAR(255),
+        contrato_path VARCHAR(255),
+        contrato_nome VARCHAR(255),
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
@@ -210,6 +233,43 @@ async function criarTabelas() {
         row_index  INT,
         data_json  MEDIUMTEXT,
         INDEX idx_sheet (sheet_id, sheet_name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // Documentos: substitui a importação de planilha por upload de arquivos
+    // organizados em 3 tipos (contrato de parceiro, nota fiscal, contrato de
+    // fornecedor), cada um podendo linkar a um parceiro/fornecedor.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS documentos (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        tipo          ENUM('contrato_parceiro','nota_fiscal','contrato_fornecedor') NOT NULL,
+        parceiro_id   INT NULL,
+        fornecedor_id INT NULL,
+        descricao     VARCHAR(255) NULL,
+        arquivo_path  VARCHAR(255) NOT NULL,
+        arquivo_nome  VARCHAR(255) NOT NULL,
+        user_id       INT NULL,
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_doc_tipo (tipo)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // Log de atividades: registra ações relevantes (login, cadastros, lançamentos,
+    // usuários) pra dar rastreabilidade de quem fez o quê e quando no sistema.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS logs (
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        user_id    INT NULL,
+        username   VARCHAR(100),
+        action     VARCHAR(40)  NOT NULL,
+        entity     VARCHAR(40)  NOT NULL,
+        entity_id  INT NULL,
+        details    VARCHAR(500),
+        ip         VARCHAR(64),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_logs_created (created_at),
+        INDEX idx_logs_user (user_id),
+        INDEX idx_logs_action (action)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
@@ -380,6 +440,31 @@ async function migrarLegado() {
     console.log('[DB] Migração do dre.json concluída. Arquivo renomeado para dre.json.bak');
   } catch (e) {
     console.error('[DB] Erro na migração:', e.message);
+  }
+}
+
+// Adiciona colunas novas na tabela users pra quem já tinha o banco criado antes
+// (perfil: nome, foto, e a lista de telas liberadas pra usuários não-admin), e
+// as colunas de agência bancária no cadastro de Forma de Pagamento.
+async function migrarColunasUsers() {
+  const conn = await pool.getConnection();
+  try {
+    const [existentes] = await conn.query(
+      `SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME IN ('users','formas_pagamento')`,
+      [DB_CONFIG.database]
+    );
+    const colsUsers = new Set(existentes.filter(r => r.TABLE_NAME === 'users').map(r => r.COLUMN_NAME));
+    const colsFormas = new Set(existentes.filter(r => r.TABLE_NAME === 'formas_pagamento').map(r => r.COLUMN_NAME));
+
+    if (!colsUsers.has('nome'))       await conn.query('ALTER TABLE users ADD COLUMN nome VARCHAR(150) NULL AFTER username');
+    if (!colsUsers.has('foto_path'))  await conn.query('ALTER TABLE users ADD COLUMN foto_path VARCHAR(255) NULL');
+    if (!colsUsers.has('foto_nome'))  await conn.query('ALTER TABLE users ADD COLUMN foto_nome VARCHAR(255) NULL');
+    if (!colsUsers.has('permissoes')) await conn.query('ALTER TABLE users ADD COLUMN permissoes TEXT NULL');
+
+    if (!colsFormas.has('banco'))    await conn.query('ALTER TABLE formas_pagamento ADD COLUMN banco VARCHAR(100) NULL');
+    if (!colsFormas.has('agencia'))  await conn.query('ALTER TABLE formas_pagamento ADD COLUMN agencia VARCHAR(30) NULL');
+  } finally {
+    conn.release();
   }
 }
 

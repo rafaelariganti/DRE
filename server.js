@@ -6,16 +6,111 @@ const XLSX         = require('xlsx');
 const PDFDocument  = require('pdfkit');
 const cookieParser = require('cookie-parser');
 const path         = require('path');
+const fs           = require('fs');
+const crypto       = require('crypto');
 const { initDb, migrarLegado, getPool } = require('./database');
 
 const app        = express();
 const PORT       = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'dre_oaf_2026_secret_key';
+const IS_PROD    = process.env.NODE_ENV === 'production';
 const upload     = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-app.use(express.json());
+// ── UPLOADS: PARCEIROS (foto / contrato) ──────────────────────────────────────
+// Anexos ficam gravados em disco (fora do public/) e são servidos por rota
+// dedicada. Nome do arquivo é regravado (timestamp + hex aleatório) pra evitar
+// colisão e pra não confiar no nome original vindo do navegador.
+const PARCEIROS_UPLOAD_DIR = path.join(__dirname, 'uploads', 'parceiros');
+fs.mkdirSync(PARCEIROS_UPLOAD_DIR, { recursive: true });
+const uploadParceiro = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, PARCEIROS_UPLOAD_DIR),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').slice(0, 10);
+      cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+// ── UPLOADS: PERFIL (foto do usuário) ─────────────────────────────────────────
+const PERFIL_UPLOAD_DIR = path.join(__dirname, 'uploads', 'perfil');
+fs.mkdirSync(PERFIL_UPLOAD_DIR, { recursive: true });
+const uploadPerfil = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, PERFIL_UPLOAD_DIR),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').slice(0, 10);
+      cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+});
+
+// ── JWT SECRET ────────────────────────────────────────────────────────────────
+// Nunca usar segredo fixo no código: quem lê o repositório (ou o zip) descobre a
+// chave e consegue forjar tokens de admin. Se JWT_SECRET não vier do ambiente,
+// gera um segredo aleatório só pra essa execução (isso força logout a cada
+// restart do processo — é o preço aceitável de não ter um segredo fraco).
+if (!process.env.JWT_SECRET) {
+  console.warn('[SEGURANÇA] JWT_SECRET não definido no ambiente. Gerando um segredo temporário para esta execução.');
+  console.warn('[SEGURANÇA] Defina JWT_SECRET no .env em produção, ou todas as sessões caem a cada restart.');
+}
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(48).toString('hex');
+
+// ── SECURITY HEADERS ──────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+  if (IS_PROD) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
+
+app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
+// setHeaders desliga o cache do navegador pra HTML/JS/CSS da interface: sem
+// isso, depois de cada atualização do sistema o usuário via ver telas antigas
+// (ex: menu de Usuários aparecendo pra quem não é admin) até limpar o cache
+// manualmente. Uploads (fotos/anexos) continuam com cache normal, sem problema.
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'),
+}));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ── RATE LIMITING (login / cadastro) ──────────────────────────────────────────
+// Limitador simples em memória, sem dependência externa: por IP+rota, N tentativas
+// por janela de tempo. Objetivo é frear força bruta e enumeração de usuário/senha.
+const rateBuckets = new Map();
+function rateLimit(key, max, windowMs) {
+  return (req, res, next) => {
+    const id = key + ':' + (req.ip || req.headers['x-forwarded-for'] || 'unknown');
+    const now = Date.now();
+    let bucket = rateBuckets.get(id);
+    if (!bucket || now - bucket.start > windowMs) { bucket = { start: now, count: 0 }; rateBuckets.set(id, bucket); }
+    bucket.count++;
+    if (bucket.count > max) {
+      const retryAfter = Math.ceil((bucket.start + windowMs - now) / 1000);
+      res.setHeader('Retry-After', String(Math.max(retryAfter, 1)));
+      return res.status(429).json({ error: 'Muitas tentativas. Aguarde um pouco antes de tentar novamente.' });
+    }
+    next();
+  };
+}
+// limpeza periódica pra não crescer indefinidamente em memória
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, b] of rateBuckets) if (now - b.start > 15 * 60 * 1000) rateBuckets.delete(id);
+}, 5 * 60 * 1000);
+
+// ── VALIDAÇÃO DE INPUT (auth) ─────────────────────────────────────────────────
+const USERNAME_RE = /^[a-zA-Z0-9_.-]{3,32}$/;
+function validCredentials(username, password) {
+  if (typeof username !== 'string' || typeof password !== 'string') return 'Campos obrigatórios';
+  if (!USERNAME_RE.test(username)) return 'Usuário deve ter 3-32 caracteres (letras, números, _ . -)';
+  if (password.length < 6) return 'Senha deve ter pelo menos 6 caracteres';
+  return null;
+}
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function db() { return getPool(); }
@@ -29,35 +124,110 @@ async function q1(sql, params = []) {
   return rows[0] || null;
 }
 
+// Log de atividades: registra quem fez o quê. Nunca deve derrubar a requisição
+// principal — se o log falhar (ex: tabela ainda não migrada), só loga no console.
+async function logAction(req, action, entity, entityId = null, details = null) {
+  try {
+    const userId   = req.user ? req.user.id : null;
+    const username = req.user ? req.user.username : (req.body && req.body.username) || null;
+    const ip = (req.headers['x-forwarded-for'] || req.ip || '').toString().slice(0, 64);
+    await q(
+      'INSERT INTO logs (user_id, username, action, entity, entity_id, details, ip) VALUES (?,?,?,?,?,?,?)',
+      [userId, username, action, entity, entityId, details ? String(details).slice(0, 500) : null, ip]
+    );
+  } catch (e) { console.error('[LOG] falha ao registrar:', e.message); }
+}
+
 // ── MIDDLEWARE ────────────────────────────────────────────────────────────────
+// Busca o usuário atual no banco a cada requisição (não confia só no JWT) pra
+// que mudanças de função/permissões feitas por um admin valham imediatamente,
+// sem precisar esperar o token expirar ou pedir novo login.
 function auth(req, res, next) {
   const token = req.cookies.token || (req.headers.authorization || '').replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ error: 'Token inválido' }); }
+  let payload;
+  try { payload = jwt.verify(token, JWT_SECRET); }
+  catch { return res.status(401).json({ error: 'Token inválido' }); }
+  q1('SELECT id, username, role, nome, foto_path, foto_nome, permissoes FROM users WHERE id=?', [payload.id])
+    .then(user => {
+      if (!user) return res.status(401).json({ error: 'Usuário não encontrado' });
+      req.user = user;
+      next();
+    })
+    .catch(e => res.status(500).json({ error: e.message }));
 }
 function adminOnly(req, res, next) {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso restrito' });
   next();
 }
 
+// ── PERMISSÕES DE TELA (usuários não-admin) ───────────────────────────────────
+// Lista de telas que podem ser liberadas seletivamente pra um usuário comum.
+// O próprio perfil fica sempre acessível pra qualquer um logado — Dashboard
+// agora é opcional (tem dado sensível) e entra nessa lista como as demais.
+const PAGINAS_PERMISSAO = [
+  'dashboard', 'lancamentos',
+  'dre-resumo', 'dre-detalhado', 'fluxo-caixa', 'formas-pagamento-rel',
+  'cad-clientes', 'cad-fornecedores', 'cad-parceiros', 'cad-caixas', 'cad-formas',
+  'import',
+];
+function sanitizarPermissoes(input) {
+  let arr = input;
+  if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { arr = []; } }
+  if (!Array.isArray(arr)) return [];
+  return [...new Set(arr.filter(p => PAGINAS_PERMISSAO.includes(p)))];
+}
+function temPermissao(user, ...paginas) {
+  if (user.role === 'admin') return true;
+  let perms = [];
+  try { perms = JSON.parse(user.permissoes || '[]'); } catch { perms = []; }
+  return paginas.some(p => perms.includes(p));
+}
+// Middleware: bloqueia a rota se o usuário (não-admin) não tiver nenhuma das
+// telas informadas liberada. Segunda camada de proteção — a UI já esconde o
+// menu, isso aqui impede acesso direto via API.
+function permitirPaginas(...paginas) {
+  return (req, res, next) => {
+    if (temPermissao(req.user, ...paginas)) return next();
+    res.status(403).json({ error: 'Sem permissão de acesso a esta tela' });
+  };
+}
+// Cookie do JWT: httpOnly (JS do navegador não lê), sameSite=strict (não vaza em
+// requisições cross-site) e secure em produção (só viaja em HTTPS).
+function cookieOpts() {
+  return { httpOnly: true, sameSite: 'strict', secure: IS_PROD, maxAge: 7 * 24 * 3600 * 1000 };
+}
+// Formato enviado ao front-end: nunca a senha, e permissões sempre como array
+// (o banco guarda como texto JSON).
+function userOut(u) {
+  let permissoes = [];
+  try { permissoes = JSON.parse(u.permissoes || '[]'); } catch { permissoes = []; }
+  return {
+    id: u.id, username: u.username, role: u.role,
+    nome: u.nome || null, foto_path: u.foto_path || null, foto_nome: u.foto_nome || null,
+    permissoes,
+  };
+}
+
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 // Cadastro público só existe para o "bootstrap" do sistema (primeiro admin, quando
 // ainda não há nenhum usuário no banco). Depois disso, novos usuários só podem ser
 // criados por um admin já autenticado, de dentro do painel (ver POST /api/users).
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', rateLimit('register', 5, 10 * 60 * 1000), async (req, res) => {
   try {
     const [{ n }] = await q('SELECT COUNT(*) as n FROM users');
     if (n > 0) return res.status(403).json({ error: 'Cadastro público desativado. Peça a um administrador para criar seu acesso.' });
     const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: 'Campos obrigatórios' });
+    const err = validCredentials(username, password);
+    if (err) return res.status(400).json({ error: err });
     const hash = await bcrypt.hash(password, 10);
     const result = await q('INSERT INTO users (username, password, role) VALUES (?,?,?)', [username, hash, 'admin']);
     const id = result.insertId;
     const role = 'admin';
     const token = jwt.sign({ id, username, role }, JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('token', token, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000 });
-    res.json({ id, username, role });
+    res.cookie('token', token, cookieOpts());
+    await logAction(req, 'setup_admin', 'auth', id, `Primeiro admin criado: ${username}`);
+    res.json(userOut({ id, username, role, nome: null, foto_path: null, foto_nome: null, permissoes: null }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -69,23 +239,61 @@ app.get('/api/auth/setup-status', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', rateLimit('login', 8, 10 * 60 * 1000), async (req, res) => {
   try {
     const { username, password } = req.body || {};
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password)
+      return res.status(400).json({ error: 'Credenciais inválidas' });
     const user = await q1('SELECT * FROM users WHERE username=?', [username]);
-    if (!user || !await bcrypt.compare(password, user.password))
+    if (!user || !await bcrypt.compare(password, user.password)) {
+      await logAction(req, 'login_failed', 'auth', null, `Tentativa falhou para usuário: ${username}`);
       return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-    res.cookie('token', token, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 3600 * 1000 });
-    res.json({ id: user.id, username: user.username, role: user.role });
+    res.cookie('token', token, cookieOpts());
+    req.user = user;
+    await logAction(req, 'login', 'auth', user.id);
+    res.json(userOut(user));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/auth/logout', (req, res) => { res.clearCookie('token'); res.json({ ok: true }); });
-app.get('/api/auth/me', auth, (req, res) => res.json(req.user));
+app.post('/api/auth/logout', auth, async (req, res) => {
+  await logAction(req, 'logout', 'auth', req.user.id);
+  res.clearCookie('token'); res.json({ ok: true });
+});
+app.get('/api/auth/me', auth, (req, res) => res.json(userOut(req.user)));
+
+// Edita o PRÓPRIO perfil: nome, foto e (opcionalmente) senha. Não usa o CRUD de
+// /api/users porque troca a senha do usuário logado, não de um usuário-alvo.
+app.put('/api/auth/profile', auth, uploadPerfil.single('foto'), async (req, res) => {
+  try {
+    const b = req.body || {};
+    const atual = await q1('SELECT * FROM users WHERE id=?', [req.user.id]);
+    if (!atual) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    const nome = (b.nome || '').trim() || null;
+    let senhaHash = atual.password;
+    if (b.password && b.password.trim()) {
+      if (b.password.trim().length < 4) return res.status(400).json({ error: 'A nova senha deve ter ao menos 4 caracteres' });
+      senhaHash = await bcrypt.hash(b.password.trim(), 10);
+    }
+
+    let fotoPath = atual.foto_path, fotoNome = atual.foto_nome;
+    if (req.file) {
+      if (atual.foto_path) fs.unlink(path.join(__dirname, atual.foto_path.replace(/^\//, '')), () => {});
+      fotoPath = `/uploads/perfil/${req.file.filename}`;
+      fotoNome = req.file.originalname;
+    }
+
+    await q('UPDATE users SET nome=?, password=?, foto_path=?, foto_nome=? WHERE id=?', [nome, senhaHash, fotoPath, fotoNome, req.user.id]);
+    await logAction(req, 'update', 'users', req.user.id, 'Atualizou o próprio perfil');
+    const atualizado = await q1('SELECT id, username, role, nome, foto_path, foto_nome, permissoes FROM users WHERE id=?', [req.user.id]);
+    res.json(userOut(atualizado));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ── TRANSACTIONS ──────────────────────────────────────────────────────────────
-app.get('/api/transactions', auth, async (req, res) => {
+app.get('/api/transactions', auth, permitirPaginas('lancamentos'), async (req, res) => {
   try {
     const { month, year, type, status, centro_custo, forma_pagamento, caixa_banco } = req.query;
     let sql = 'SELECT * FROM transactions WHERE 1=1';
@@ -104,7 +312,7 @@ app.get('/api/transactions', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/transactions', auth, async (req, res) => {
+app.post('/api/transactions', auth, permitirPaginas('lancamentos'), async (req, res) => {
   try {
     const b = req.body;
     if (!b.date && !b.data) return res.status(400).json({ error: 'Campo obrigatório: date' });
@@ -114,7 +322,10 @@ app.post('/api/transactions', auth, async (req, res) => {
     const tipo  = b.type  || b.tipo;
     const data  = b.date  || b.data;
     const valor = Number(b.amount || b.valor || 0);
-    const taxa  = await calcTaxaMDR(b.forma_pagamento || b.forma_pagamento_nome, valor);
+    // MDR (taxa de maquininha/adquirente) só faz sentido em RECEITA — cobrar essa taxa
+    // numa despesa fazia o "valor líquido" ficar menor que o valor pago, como se a
+    // despesa desse desconto. Ver auditoria-dre.md, item 5.
+    const taxa  = tipo === 'income' ? await calcTaxaMDR(b.forma_pagamento || b.forma_pagamento_nome, valor) : 0;
 
     const result = await q(`
       INSERT INTO transactions
@@ -130,23 +341,30 @@ app.post('/api/transactions', auth, async (req, res) => {
        b.forma_pagamento || b.forma_pagamento_nome || '',
        b.caixa_banco || b.caixa_nome || '',
        b.centro_custo || b.centro_custo_nome || '',
-       b.status || 'realizado',
+       // status só existe como 'em_aberto' ou 'quitado' no resto do sistema (Contas a
+       // Pagar/Receber filtra exatamente por esses dois valores). O default antigo
+       // ('realizado') não batia com esse vocabulário — um lançamento criado sem
+       // status explícito sumia de toda a tela de Contas a Pagar/Receber, mesmo
+       // contando normalmente no DRE. Ver auditoria-dre.md, item 6.
+       (b.status==='em_aberto'?'em_aberto':'quitado'),
        b.data_vencimento || null,
        b.data_pagamento  || null,
        taxa, valor - taxa,
        b.observacoes || '',
        req.user.id]
     );
+    await logAction(req, 'create', 'transactions', result.insertId, `${tipo} - ${b.description||b.descricao||''} - R$${valor}`);
     res.json({ id: result.insertId });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/api/transactions/:id', auth, async (req, res) => {
+app.put('/api/transactions/:id', auth, permitirPaginas('lancamentos'), async (req, res) => {
   try {
     const b    = req.body;
     const id   = Number(req.params.id);
     const valor = Number(b.amount || b.valor || 0);
-    const taxa  = await calcTaxaMDR(b.forma_pagamento || b.forma_pagamento_nome, valor);
+    const tipoEdit = b.type || b.tipo;
+    const taxa  = tipoEdit === 'income' ? await calcTaxaMDR(b.forma_pagamento || b.forma_pagamento_nome, valor) : 0;
     await q(`
       UPDATE transactions SET
         tipo=?, data=?, descricao=?, valor=?, conta_nome=?, grupo=?,
@@ -164,13 +382,14 @@ app.put('/api/transactions/:id', auth, async (req, res) => {
        b.forma_pagamento || b.forma_pagamento_nome || '',
        b.caixa_banco || b.caixa_nome || '',
        b.centro_custo || b.centro_custo_nome || '',
-       b.status || 'realizado',
+       (b.status==='em_aberto'?'em_aberto':'quitado'),
        b.data_vencimento || null,
        b.data_pagamento  || null,
        taxa, valor - taxa,
        b.observacoes || '',
        id]
     );
+    await logAction(req, 'update', 'transactions', id, `${b.type||b.tipo} - ${b.description||b.descricao||''} - R$${valor}`);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -187,13 +406,20 @@ app.patch('/api/transactions/:id', auth, async (req, res) => {
     if (!fields.length) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
     vals.push(id);
     await q(`UPDATE transactions SET ${fields.join(',')} WHERE id=?`, vals);
+    await logAction(req, b.status==='quitado'?'baixa':'update_status', 'transactions', id, b.status);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/transactions/:id', auth, async (req, res) => {
+app.delete('/api/transactions/:id', auth, permitirPaginas('lancamentos'), async (req, res) => {
   try {
-    await q('DELETE FROM transactions WHERE id=?', [Number(req.params.id)]);
+    const id = Number(req.params.id);
+    // Busca a linha ANTES de apagar, pra o log guardar o que era o lançamento.
+    // Sem isso, depois de excluído o log só diz "excluído #42" sem valor/descrição —
+    // ruim demais pra auditoria num sistema financeiro. Ver auditoria-dre.md, item 7.
+    const row = await q1('SELECT tipo, valor, descricao FROM transactions WHERE id=?', [id]);
+    await q('DELETE FROM transactions WHERE id=?', [id]);
+    await logAction(req, 'delete', 'transactions', id, row ? `${row.tipo} - ${row.descricao || ''} - R$${row.valor}` : null);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -222,7 +448,7 @@ function normalizeTransaction(t) {
 }
 
 // ── TRANSFERS ─────────────────────────────────────────────────────────────────
-app.get('/api/transfers', auth, async (req, res) => {
+app.get('/api/transfers', auth, permitirPaginas('lancamentos'), async (req, res) => {
   try {
     const { year, month } = req.query;
     let sql = 'SELECT * FROM transfers WHERE 1=1';
@@ -241,7 +467,7 @@ app.get('/api/transfers', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/transfers', auth, async (req, res) => {
+app.post('/api/transfers', auth, permitirPaginas('lancamentos'), async (req, res) => {
   try {
     const b = req.body;
     if (!b.date && !b.data) return res.status(400).json({ error: 'Campo obrigatório: date' });
@@ -254,35 +480,45 @@ app.post('/api/transfers', auth, async (req, res) => {
        b.caixa_entrada || b.destino_nome || '',
        b.observacoes || '', req.user.id]
     );
+    await logAction(req, 'create', 'transfers', result.insertId, `${b.caixa_saida||b.origem_nome} → ${b.caixa_entrada||b.destino_nome} - R$${Number(b.amount||b.valor||0)}`);
     res.json({ id: result.insertId });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/transfers/:id', auth, async (req, res) => {
+app.delete('/api/transfers/:id', auth, permitirPaginas('lancamentos'), async (req, res) => {
   try {
-    await q('DELETE FROM transfers WHERE id=?', [Number(req.params.id)]);
+    const id = Number(req.params.id);
+    const row = await q1('SELECT valor, origem_nome, destino_nome FROM transfers WHERE id=?', [id]);
+    await q('DELETE FROM transfers WHERE id=?', [id]);
+    await logAction(req, 'delete', 'transfers', id, row ? `${row.origem_nome} → ${row.destino_nome} - R$${row.valor}` : null);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── DRE RESUMO ────────────────────────────────────────────────────────────────
-app.get('/api/dre/resumo', auth, async (req, res) => {
+// A receita usada aqui é sempre a RECEITA LÍQUIDA (bruta - taxa_mdr), pra ficar
+// consistente com o Dashboard (GET /api/dre). Antes essa rota somava o valor bruto
+// sem descontar a taxa, e o Dashboard descontava — o mesmo ano dava lucro diferente
+// dependendo da tela. Ver auditoria-dre.md, item 2.
+app.get('/api/dre/resumo', auth, permitirPaginas('dre-resumo'), async (req, res) => {
   try {
     const y = String(req.query.year || new Date().getFullYear());
     const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-    const txs = await q('SELECT tipo, data, valor FROM transactions WHERE YEAR(data)=?', [y]);
+    const txs = await q('SELECT tipo, data, valor, taxa_mdr FROM transactions WHERE YEAR(data)=?', [y]);
     const [{ si }] = await q('SELECT COALESCE(SUM(saldo_inicial),0) as si FROM caixas');
 
     let saldoAcum = Number(si);
     const summary = meses.map((nome, i) => {
       const m = i + 1;
       const mtxs = txs.filter(t => new Date(t.data).getMonth() + 1 === m);
-      const receitas  = mtxs.filter(t => t.tipo === 'income').reduce((s, t) => s + Number(t.valor), 0);
-      const despesas  = mtxs.filter(t => t.tipo === 'expense').reduce((s, t) => s + Number(t.valor), 0);
-      const lucro     = receitas - despesas;
-      const saldo_inicial = saldoAcum;
+      const receitaBruta = mtxs.filter(t => t.tipo === 'income').reduce((s, t) => s + Number(t.valor), 0);
+      const deducoes      = mtxs.filter(t => t.tipo === 'income').reduce((s, t) => s + Number(t.taxa_mdr || 0), 0);
+      const receitas       = receitaBruta - deducoes; // receita líquida
+      const despesas       = mtxs.filter(t => t.tipo === 'expense').reduce((s, t) => s + Number(t.valor), 0);
+      const lucro          = receitas - despesas;
+      const saldo_inicial  = saldoAcum;
       saldoAcum += lucro;
-      return { mes: nome, saldo_inicial, receitas, despesas, total: saldo_inicial + lucro, lucro, lucratividade: receitas > 0 ? lucro / receitas : 0 };
+      return { mes: nome, saldo_inicial, receita_bruta: receitaBruta, deducoes, receitas, despesas, total: saldo_inicial + lucro, lucro, lucratividade: receitas > 0 ? lucro / receitas : 0 };
     });
     const totRec  = summary.reduce((s, m) => s + m.receitas, 0);
     const totDesp = summary.reduce((s, m) => s + m.despesas, 0);
@@ -291,18 +527,21 @@ app.get('/api/dre/resumo', auth, async (req, res) => {
 });
 
 // ── DRE DETALHADO ─────────────────────────────────────────────────────────────
-app.get('/api/dre/detalhado', auth, async (req, res) => {
+// A receita agregada por grupo/conta usa o valor líquido (desconta taxa_mdr) pra
+// bater com o Dashboard e o DRE Resumo. Ver auditoria-dre.md, item 2.
+app.get('/api/dre/detalhado', auth, permitirPaginas('dre-detalhado'), async (req, res) => {
   try {
     const y = String(req.query.year || new Date().getFullYear());
-    const txs = await q('SELECT tipo, data, valor, grupo, conta_nome FROM transactions WHERE YEAR(data)=?', [y]);
+    const txs = await q('SELECT tipo, data, valor, taxa_mdr, grupo, conta_nome FROM transactions WHERE YEAR(data)=?', [y]);
     const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     const grupos = {};
     txs.forEach(t => {
       const key = `${t.tipo}||${t.grupo || 'Sem Grupo'}||${t.conta_nome || 'Geral'}`;
       if (!grupos[key]) grupos[key] = { type: t.tipo, grupo: t.grupo || 'Sem Grupo', conta: t.conta_nome || 'Geral', meses: Array(12).fill(0), total: 0 };
+      const valorLiquido = t.tipo === 'income' ? Number(t.valor) - Number(t.taxa_mdr || 0) : Number(t.valor);
       const m = new Date(t.data).getMonth();
-      grupos[key].meses[m] += Number(t.valor);
-      grupos[key].total    += Number(t.valor);
+      grupos[key].meses[m] += valorLiquido;
+      grupos[key].total    += valorLiquido;
     });
     const receitas = Object.values(grupos).filter(g => g.type === 'income').sort((a, b) => b.total - a.total);
     const despesas = Object.values(grupos).filter(g => g.type === 'expense').sort((a, b) => b.total - a.total);
@@ -315,21 +554,46 @@ app.get('/api/dre/detalhado', auth, async (req, res) => {
 });
 
 // ── FLUXO DE CAIXA ────────────────────────────────────────────────────────────
-app.get('/api/dre/fluxo-caixa', auth, async (req, res) => {
+// Separa REALIZADO (dinheiro que já entrou/saiu de fato — status='quitado', na
+// data em que o pagamento aconteceu) de PREVISTO (título ainda em aberto, na data
+// de vencimento). Antes essa rota somava tudo junto pela data do lançamento, sem
+// olhar o status — um título "em_aberto" derrubava o saldo do dia como se o
+// dinheiro já tivesse saído da conta, mesmo sem ter sido pago ainda.
+// Ver auditoria-dre.md, item 3.
+function toDateStr(v) {
+  return (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10);
+}
+
+app.get('/api/dre/fluxo-caixa', auth, permitirPaginas('fluxo-caixa'), async (req, res) => {
   try {
     const { year, month, caixa } = req.query;
     const y = String(year || new Date().getFullYear());
     const m = String(month || new Date().getMonth() + 1).padStart(2, '0');
 
-    let sqlTx = 'SELECT tipo, data, valor FROM transactions WHERE YEAR(data)=? AND MONTH(data)=?';
-    const pTx = [y, Number(m)];
-    if (caixa && caixa !== 'Todos') { sqlTx += ' AND caixa_nome=?'; pTx.push(caixa); }
+    // REALIZADO: só título já quitado, na data em que o dinheiro efetivamente
+    // moveu (data_pagamento; se não tiver sido preenchida, cai pra data do
+    // lançamento como fallback, pra não perder o registro do relatório).
+    let sqlReal = `SELECT tipo, COALESCE(data_pagamento, data) as data_efetiva, valor
+                   FROM transactions
+                   WHERE status='quitado'
+                     AND YEAR(COALESCE(data_pagamento, data))=? AND MONTH(COALESCE(data_pagamento, data))=?`;
+    const pReal = [y, Number(m)];
+    if (caixa && caixa !== 'Todos') { sqlReal += ' AND caixa_nome=?'; pReal.push(caixa); }
+
+    // PREVISTO: só título em aberto, na data de vencimento (ou data do
+    // lançamento, se não tiver vencimento cadastrado).
+    let sqlPrev = `SELECT tipo, COALESCE(data_vencimento, data) as data_efetiva, valor
+                   FROM transactions
+                   WHERE status='em_aberto'
+                     AND YEAR(COALESCE(data_vencimento, data))=? AND MONTH(COALESCE(data_vencimento, data))=?`;
+    const pPrev = [y, Number(m)];
+    if (caixa && caixa !== 'Todos') { sqlPrev += ' AND caixa_nome=?'; pPrev.push(caixa); }
 
     let sqlTr = 'SELECT data, valor, origem_nome, destino_nome FROM transfers WHERE YEAR(data)=? AND MONTH(data)=?';
     const pTr = [y, Number(m)];
     if (caixa && caixa !== 'Todos') { sqlTr += ' AND (origem_nome=? OR destino_nome=?)'; pTr.push(caixa, caixa); }
 
-    const [txs, trs] = await Promise.all([q(sqlTx, pTx), q(sqlTr, pTr)]);
+    const [realTxs, prevTxs, trs] = await Promise.all([q(sqlReal, pReal), q(sqlPrev, pPrev), q(sqlTr, pTr)]);
 
     let sqlSaldo = 'SELECT COALESCE(SUM(saldo_inicial),0) as si FROM caixas';
     const pSaldo = [];
@@ -337,25 +601,44 @@ app.get('/api/dre/fluxo-caixa', auth, async (req, res) => {
     const [{ si }] = await q(sqlSaldo, pSaldo);
 
     const diasNoMes = new Date(Number(y), Number(m), 0).getDate();
-    let saldoAcum = Number(si);
+    let saldoAcum = Number(si);           // saldo real (só o que já aconteceu)
+    let saldoProjetadoAcum = Number(si);  // saldo real + o que está previsto
     const dias = [];
     for (let d = 1; d <= diasNoMes; d++) {
       const ds = `${y}-${m}-${String(d).padStart(2, '0')}`;
-      const dayTxs = txs.filter(t => (t.data instanceof Date ? t.data.toISOString() : t.data.toString()).slice(0, 10) === ds);
-      const dayTrs = trs.filter(t => (t.data instanceof Date ? t.data.toISOString() : t.data.toString()).slice(0, 10) === ds);
-      const receita     = dayTxs.filter(t => t.tipo === 'income').reduce((s, t) => s + Number(t.valor), 0);
-      const despesa     = dayTxs.filter(t => t.tipo === 'expense').reduce((s, t) => s + Number(t.valor), 0);
-      const transferencia = dayTrs.reduce((s, t) => s + Number(t.valor), 0);
-      const resultado   = receita - despesa;
+      const dReal = realTxs.filter(t => toDateStr(t.data_efetiva) === ds);
+      const dPrev = prevTxs.filter(t => toDateStr(t.data_efetiva) === ds);
+      const dTrs  = trs.filter(t => toDateStr(t.data) === ds);
+
+      const receita = dReal.filter(t => t.tipo === 'income').reduce((s, t) => s + Number(t.valor), 0);
+      const despesa = dReal.filter(t => t.tipo === 'expense').reduce((s, t) => s + Number(t.valor), 0);
+      const receitaPrevista = dPrev.filter(t => t.tipo === 'income').reduce((s, t) => s + Number(t.valor), 0);
+      const despesaPrevista = dPrev.filter(t => t.tipo === 'expense').reduce((s, t) => s + Number(t.valor), 0);
+
+      // Transferência: quando filtrado por um caixa específico, precisa ENTRAR no saldo
+      // (dinheiro chegou ou saiu daquele caixa). Ver auditoria-dre.md, item 4.
+      const transferenciaEntrada = (caixa && caixa !== 'Todos') ? dTrs.filter(t => t.destino_nome === caixa).reduce((s, t) => s + Number(t.valor), 0) : 0;
+      const transferenciaSaida   = (caixa && caixa !== 'Todos') ? dTrs.filter(t => t.origem_nome  === caixa).reduce((s, t) => s + Number(t.valor), 0) : 0;
+      const transferencia = dTrs.reduce((s, t) => s + Number(t.valor), 0);
+
+      const resultado = receita - despesa + transferenciaEntrada - transferenciaSaida;
       saldoAcum += resultado;
-      dias.push({ data: ds, receita, despesa, transferencia, resultado, saldo: saldoAcum });
+
+      const previsto = receitaPrevista - despesaPrevista;
+      saldoProjetadoAcum += resultado + previsto;
+
+      dias.push({
+        data: ds, receita, despesa, transferencia, resultado, saldo: saldoAcum,
+        receita_prevista: receitaPrevista, despesa_prevista: despesaPrevista,
+        previsto, saldo_projetado: saldoProjetadoAcum,
+      });
     }
     res.json(dias);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── CENTRO DE CUSTO ───────────────────────────────────────────────────────────
-app.get('/api/dre/centro-custo', auth, async (req, res) => {
+app.get('/api/dre/centro-custo', auth, permitirPaginas('centro-custo'), async (req, res) => {
   try {
     const { year, month, centro } = req.query;
     let sql = 'SELECT * FROM transactions WHERE 1=1';
@@ -371,7 +654,7 @@ app.get('/api/dre/centro-custo', auth, async (req, res) => {
 });
 
 // ── FORMAS DE PAGAMENTO RELATÓRIO ─────────────────────────────────────────────
-app.get('/api/dre/formas-pagamento', auth, async (req, res) => {
+app.get('/api/dre/formas-pagamento', auth, permitirPaginas('formas-pagamento-rel'), async (req, res) => {
   try {
     const y = String(req.query.year || new Date().getFullYear());
     const [txs, fps] = await Promise.all([
@@ -400,7 +683,7 @@ app.get('/api/dre/formas-pagamento', auth, async (req, res) => {
 });
 
 // ── DRE LEGACY (dashboard) ────────────────────────────────────────────────────
-app.get('/api/dre', auth, async (req, res) => {
+app.get('/api/dre', auth, permitirPaginas('dashboard'), async (req, res) => {
   try {
     const y = String(req.query.year || new Date().getFullYear());
     // taxa_mdr precisa estar no SELECT — antes só vinha tipo/valor/centro_custo,
@@ -446,63 +729,77 @@ app.get('/api/dre', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── IMPORT ────────────────────────────────────────────────────────────────────
-app.post('/api/import', auth, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
-  const ext = req.file.originalname.split('.').pop().toLowerCase();
-  let sheetData = {};
-  try {
-    if (['xlsx','xlsm','xls'].includes(ext)) {
-      const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
-      wb.SheetNames.forEach(name => { sheetData[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null }); });
-    } else if (ext === 'csv') {
-      sheetData['Planilha'] = req.file.buffer.toString('utf-8').split('\n').map(l => l.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
-    } else if (ext === 'xml') {
-      const text = req.file.buffer.toString('utf-8');
-      const rows = [];
-      (text.match(/<Row[^>]*>([\s\S]*?)<\/Row>/gi) || []).forEach(row => {
-        rows.push((row.match(/<Cell[^>]*>([\s\S]*?)<\/Cell>/gi) || []).map(c => c.replace(/<[^>]+>/g, '').trim()));
-      });
-      sheetData['Dados'] = rows;
-    } else return res.status(400).json({ error: 'Formato não suportado' });
-
-    const result = await q('INSERT INTO imported_sheets (filename, user_id) VALUES (?,?)', [req.file.originalname, req.user.id]);
-    const sheetId = result.insertId;
-    for (const [sName, rows] of Object.entries(sheetData)) {
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        if (row && row.some(c => c !== null && c !== '')) {
-          await q('INSERT INTO imported_rows (sheet_id, sheet_name, row_index, data_json) VALUES (?,?,?,?)',
-            [sheetId, sName, i, JSON.stringify(row)]);
-        }
-      }
-    }
-    res.json({ sheetId, filename: req.file.originalname, sheets: Object.keys(sheetData).map(n => ({ name: n, rowCount: sheetData[n].filter(r => r.some(c => c !== null && c !== '')).length })) });
-  } catch (e) { res.status(500).json({ error: 'Erro ao processar: ' + e.message }); }
+// ── DOCUMENTOS (substitui a importação de planilha) ──────────────────────────
+// 3 tipos: contrato de parceiro, nota fiscal, contrato de fornecedor. Cada
+// documento é um arquivo em disco + registro no banco com o vínculo opcional
+// a um parceiro/fornecedor. Mesmo padrão de upload usado em Parceiros/Perfil.
+const DOCUMENTOS_UPLOAD_DIR = path.join(__dirname, 'uploads', 'documentos');
+fs.mkdirSync(DOCUMENTOS_UPLOAD_DIR, { recursive: true });
+const uploadDocumento = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, DOCUMENTOS_UPLOAD_DIR),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').slice(0, 10);
+      cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
 });
+const TIPOS_DOCUMENTO = ['contrato_parceiro', 'nota_fiscal', 'contrato_fornecedor'];
 
-app.get('/api/import/:sid/sheets', auth, async (req, res) => {
+app.get('/api/documentos', auth, permitirPaginas('import'), async (req, res) => {
   try {
-    const rows = await q('SELECT DISTINCT sheet_name FROM imported_rows WHERE sheet_id=?', [Number(req.params.sid)]);
-    res.json(rows.map(r => r.sheet_name));
+    const tipo = req.query.tipo;
+    if (tipo && !TIPOS_DOCUMENTO.includes(tipo)) return res.status(400).json({ error: 'Tipo inválido' });
+    let sql = `
+      SELECT d.*, p.nome AS parceiro_nome, f.nome AS fornecedor_nome
+      FROM documentos d
+      LEFT JOIN parceiros    p ON p.id = d.parceiro_id
+      LEFT JOIN fornecedores f ON f.id = d.fornecedor_id
+      WHERE 1=1`;
+    const params = [];
+    if (tipo) { sql += ' AND d.tipo=?'; params.push(tipo); }
+    sql += ' ORDER BY d.created_at DESC';
+    res.json(await q(sql, params));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/import/:sid/data/:name', auth, async (req, res) => {
+app.post('/api/documentos', auth, permitirPaginas('import'), uploadDocumento.single('arquivo'), async (req, res) => {
   try {
-    const rows = await q('SELECT row_index, data_json FROM imported_rows WHERE sheet_id=? AND sheet_name=? ORDER BY row_index', [Number(req.params.sid), req.params.name]);
-    res.json(rows.map(r => ({ index: r.row_index, data: JSON.parse(r.data_json) })));
+    const b = req.body || {};
+    if (!TIPOS_DOCUMENTO.includes(b.tipo)) return res.status(400).json({ error: 'Tipo inválido' });
+    if (!req.file) return res.status(400).json({ error: 'Arquivo não enviado' });
+    const result = await q(
+      `INSERT INTO documentos (tipo, parceiro_id, fornecedor_id, descricao, arquivo_path, arquivo_nome, user_id)
+       VALUES (?,?,?,?,?,?,?)`,
+      [
+        b.tipo,
+        b.parceiro_id ? Number(b.parceiro_id) : null,
+        b.fornecedor_id ? Number(b.fornecedor_id) : null,
+        (b.descricao || '').trim() || null,
+        `/uploads/documentos/${req.file.filename}`,
+        req.file.originalname,
+        req.user.id,
+      ]
+    );
+    await logAction(req, 'create', 'documentos', result.insertId, `${b.tipo}: ${req.file.originalname}`);
+    res.json({ id: result.insertId });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/imports', auth, async (req, res) => {
+app.delete('/api/documentos/:id', auth, permitirPaginas('import'), async (req, res) => {
   try {
-    res.json(await q('SELECT * FROM imported_sheets ORDER BY uploaded_at DESC LIMIT 20'));
+    const id = Number(req.params.id);
+    const row = await q1('SELECT * FROM documentos WHERE id=?', [id]);
+    await q('DELETE FROM documentos WHERE id=?', [id]);
+    if (row && row.arquivo_path) fs.unlink(path.join(__dirname, row.arquivo_path.replace(/^\//, '')), () => {});
+    await logAction(req, 'delete', 'documentos', id, row ? row.arquivo_nome : null);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── EXPORT EXCEL ──────────────────────────────────────────────────────────────
-app.get('/api/export/excel', auth, async (req, res) => {
+app.get('/api/export/excel', auth, permitirPaginas('import'), async (req, res) => {
   try {
     const y   = String(req.query.year || new Date().getFullYear());
     const txs = await q('SELECT * FROM transactions WHERE YEAR(data)=? ORDER BY data', [y]);
@@ -529,7 +826,7 @@ app.get('/api/export/excel', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/export/csv', auth, async (req, res) => {
+app.get('/api/export/csv', auth, permitirPaginas('import'), async (req, res) => {
   try {
     const y   = String(req.query.year || new Date().getFullYear());
     const txs = await q('SELECT * FROM transactions WHERE YEAR(data)=? ORDER BY data', [y]);
@@ -541,7 +838,7 @@ app.get('/api/export/csv', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/export/xml', auth, async (req, res) => {
+app.get('/api/export/xml', auth, permitirPaginas('import'), async (req, res) => {
   try {
     const y   = String(req.query.year || new Date().getFullYear());
     const txs = await q('SELECT * FROM transactions WHERE YEAR(data)=?', [y]);
@@ -555,7 +852,7 @@ app.get('/api/export/xml', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/export/pdf', auth, async (req, res) => {
+app.get('/api/export/pdf', auth, permitirPaginas('import'), async (req, res) => {
   try {
     const y   = String(req.query.year || new Date().getFullYear());
     const txs = await q('SELECT * FROM transactions WHERE YEAR(data)=?', [y]);
@@ -614,14 +911,110 @@ app.get('/api/export/pdf', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── CADASTROS: PARCEIROS (com anexos de foto/contrato) ───────────────────────
+// Fora do CRUD genérico porque precisa de multipart/form-data (upload.fields)
+// em vez de JSON, além de gerenciar arquivo antigo/novo no disco.
+const PARCEIRO_CAMPOS_OBRIGATORIOS = ['nome', 'cnpj', 'razao_social', 'responsavel', 'contato'];
+// Reforça no servidor que a comissão (valor em R$) nunca seja negativa.
+const clampComissao = v => Math.max(0, Number(v) || 0);
+
+app.get('/api/parceiros', auth, permitirPaginas('cad-parceiros'), async (req, res) => {
+  try { res.json(await q('SELECT * FROM parceiros ORDER BY id DESC')); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/parceiros', auth, permitirPaginas('cad-parceiros'), uploadParceiro.fields([{ name: 'foto', maxCount: 1 }, { name: 'contrato', maxCount: 1 }]), async (req, res) => {
+  try {
+    const b = req.body;
+    for (const f of PARCEIRO_CAMPOS_OBRIGATORIOS) {
+      if (!b[f] || !String(b[f]).trim()) return res.status(400).json({ error: `Campo obrigatório: ${f}` });
+    }
+    const foto     = req.files && req.files.foto && req.files.foto[0];
+    const contrato = req.files && req.files.contrato && req.files.contrato[0];
+
+    const result = await q(
+      `INSERT INTO parceiros
+         (nome, razao_social, cnpj, email, endereco, comissao, contato, whatsapp, responsavel,
+          foto_path, foto_nome, contrato_path, contrato_nome)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        b.nome.trim(), b.razao_social.trim(), b.cnpj.trim(), (b.email || '').trim() || null,
+        (b.endereco || '').trim() || null, clampComissao(b.comissao),
+        b.contato.trim(), (b.whatsapp || '').trim() || null, b.responsavel.trim(),
+        foto     ? `/uploads/parceiros/${foto.filename}`     : null, foto     ? foto.originalname     : null,
+        contrato ? `/uploads/parceiros/${contrato.filename}` : null, contrato ? contrato.originalname : null,
+      ]
+    );
+    await logAction(req, 'create', 'parceiros', result.insertId, b.nome);
+    res.json({ id: result.insertId });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/parceiros/:id', auth, permitirPaginas('cad-parceiros'), uploadParceiro.fields([{ name: 'foto', maxCount: 1 }, { name: 'contrato', maxCount: 1 }]), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const b  = req.body;
+    for (const f of PARCEIRO_CAMPOS_OBRIGATORIOS) {
+      if (!b[f] || !String(b[f]).trim()) return res.status(400).json({ error: `Campo obrigatório: ${f}` });
+    }
+    const atual = await q1('SELECT * FROM parceiros WHERE id=?', [id]);
+    if (!atual) return res.status(404).json({ error: 'Parceiro não encontrado' });
+
+    const foto     = req.files && req.files.foto && req.files.foto[0];
+    const contrato = req.files && req.files.contrato && req.files.contrato[0];
+
+    // Se um novo anexo veio, apaga o antigo do disco (best-effort).
+    if (foto && atual.foto_path) fs.unlink(path.join(__dirname, atual.foto_path.replace(/^\//, '')), () => {});
+    if (contrato && atual.contrato_path) fs.unlink(path.join(__dirname, atual.contrato_path.replace(/^\//, '')), () => {});
+
+    await q(
+      `UPDATE parceiros SET
+         nome=?, razao_social=?, cnpj=?, email=?, endereco=?, comissao=?, contato=?, whatsapp=?, responsavel=?,
+         foto_path=?, foto_nome=?, contrato_path=?, contrato_nome=?
+       WHERE id=?`,
+      [
+        b.nome.trim(), b.razao_social.trim(), b.cnpj.trim(), (b.email || '').trim() || null,
+        (b.endereco || '').trim() || null, clampComissao(b.comissao),
+        b.contato.trim(), (b.whatsapp || '').trim() || null, b.responsavel.trim(),
+        foto     ? `/uploads/parceiros/${foto.filename}`     : atual.foto_path,
+        foto     ? foto.originalname                          : atual.foto_nome,
+        contrato ? `/uploads/parceiros/${contrato.filename}` : atual.contrato_path,
+        contrato ? contrato.originalname                      : atual.contrato_nome,
+        id,
+      ]
+    );
+    await logAction(req, 'update', 'parceiros', id, b.nome);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/parceiros/:id', auth, permitirPaginas('cad-parceiros'), async (req, res) => {
+  try {
+    const id  = Number(req.params.id);
+    const row = await q1('SELECT * FROM parceiros WHERE id=?', [id]);
+    await q('DELETE FROM parceiros WHERE id=?', [id]);
+    if (row) {
+      if (row.foto_path)     fs.unlink(path.join(__dirname, row.foto_path.replace(/^\//, '')), () => {});
+      if (row.contrato_path) fs.unlink(path.join(__dirname, row.contrato_path.replace(/^\//, '')), () => {});
+    }
+    await logAction(req, 'delete', 'parceiros', id, row ? row.nome : null);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── CADASTROS CRUD GENÉRICO ───────────────────────────────────────────────────
-function crudRoutes(table, requiredFields = []) {
-  app.get(`/api/${table}`, auth, async (req, res) => {
+// paginaKey: quando informado, exige que o usuário (não-admin) tenha essa tela
+// liberada em permissoes; null deixa a rota aberta a qualquer autenticado
+// (caso de centros_custo, que não tem tela própria — só é lido via /api/cadastros).
+function crudRoutes(table, requiredFields = [], paginaKey = null) {
+  const perm = paginaKey ? [permitirPaginas(paginaKey)] : [];
+
+  app.get(`/api/${table}`, auth, ...perm, async (req, res) => {
     try { res.json(await q(`SELECT * FROM \`${table}\` ORDER BY id`)); }
     catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.post(`/api/${table}`, auth, async (req, res) => {
+  app.post(`/api/${table}`, auth, ...perm, async (req, res) => {
     try {
       const b = req.body;
       for (const f of requiredFields) if (!b[f]) return res.status(400).json({ error: `Campo obrigatório: ${f}` });
@@ -631,11 +1024,12 @@ function crudRoutes(table, requiredFields = []) {
         `INSERT INTO \`${table}\` (${keys.map(k => `\`${k}\``).join(',')}) VALUES (${keys.map(() => '?').join(',')})`,
         vals
       );
+      await logAction(req, 'create', table, result.insertId, b.nome || b.grupo || null);
       res.json({ id: result.insertId });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.put(`/api/${table}/:id`, auth, async (req, res) => {
+  app.put(`/api/${table}/:id`, auth, ...perm, async (req, res) => {
     try {
       const b    = req.body;
       const id   = Number(req.params.id);
@@ -645,25 +1039,29 @@ function crudRoutes(table, requiredFields = []) {
         `UPDATE \`${table}\` SET ${keys.map(k => `\`${k}\`=?`).join(',')} WHERE id=?`,
         [...keys.map(k => b[k]), id]
       );
+      await logAction(req, 'update', table, id, b.nome || b.grupo || null);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.delete(`/api/${table}/:id`, auth, async (req, res) => {
+  app.delete(`/api/${table}/:id`, auth, ...perm, async (req, res) => {
     try {
-      await q(`DELETE FROM \`${table}\` WHERE id=?`, [Number(req.params.id)]);
+      const id = Number(req.params.id);
+      const row = await q1(`SELECT * FROM \`${table}\` WHERE id=?`, [id]);
+      await q(`DELETE FROM \`${table}\` WHERE id=?`, [id]);
+      await logAction(req, 'delete', table, id, row ? (row.nome || row.grupo || null) : null);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 }
 
-crudRoutes('clientes',          ['nome']);
-crudRoutes('fornecedores',      ['nome']);
-crudRoutes('contas_receita',    ['grupo']);
-crudRoutes('contas_despesa',    ['grupo']);
+crudRoutes('clientes',          ['nome'],  'cad-clientes');
+crudRoutes('fornecedores',      ['nome'],  'cad-fornecedores');
+crudRoutes('contas_receita',    ['grupo'], 'cad-contas');
+crudRoutes('contas_despesa',    ['grupo'], 'cad-contas');
 crudRoutes('centros_custo',     ['nome']);
-crudRoutes('caixas',            ['nome']);
-crudRoutes('formas_pagamento',  ['nome']);
+crudRoutes('caixas',            ['nome'],  'cad-caixas');
+crudRoutes('formas_pagamento',  ['nome'],  'cad-formas');
 
 // ── ALL CADASTROS (summary) ───────────────────────────────────────────────────
 app.get('/api/cadastros', auth, async (req, res) => {
@@ -693,38 +1091,111 @@ app.get('/api/cadastros', auth, async (req, res) => {
 
 // ── USERS ─────────────────────────────────────────────────────────────────────
 app.get('/api/users', auth, adminOnly, async (req, res) => {
-  try { res.json(await q('SELECT id, username, role, created_at FROM users ORDER BY id')); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const rows = await q('SELECT id, username, role, nome, foto_path, permissoes, created_at FROM users ORDER BY id');
+    res.json(rows.map(u => {
+      let permissoes = [];
+      try { permissoes = JSON.parse(u.permissoes || '[]'); } catch { permissoes = []; }
+      return { ...u, permissoes };
+    }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Cadastro interno de usuários: só um admin autenticado pode criar novos acessos.
 // Não mexe no cookie de sessão de quem está criando (o admin continua logado).
-app.post('/api/users', auth, adminOnly, async (req, res) => {
+// Se o novo usuário não for admin, o admin escolhe quais telas ele acessa
+// (permissoes); admin sempre tem acesso total, então a lista é ignorada nesse caso.
+app.post('/api/users', auth, adminOnly, rateLimit('create-user', 20, 10 * 60 * 1000), async (req, res) => {
   try {
     const { username, password, role } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: 'Campos obrigatórios' });
-    if (password.length < 4) return res.status(400).json({ error: 'Senha muito curta' });
+    const err = validCredentials(username, password);
+    if (err) return res.status(400).json({ error: err });
     const existing = await q1('SELECT id FROM users WHERE username=?', [username]);
     if (existing) return res.status(400).json({ error: 'Usuário já existe' });
     const finalRole = role === 'admin' ? 'admin' : 'user';
+    const permissoes = finalRole === 'admin' ? [] : sanitizarPermissoes(req.body.permissoes);
     const hash = await bcrypt.hash(password, 10);
-    const result = await q('INSERT INTO users (username, password, role) VALUES (?,?,?)', [username, hash, finalRole]);
-    res.json({ id: result.insertId, username, role: finalRole });
+    const result = await q(
+      'INSERT INTO users (username, password, role, permissoes) VALUES (?,?,?,?)',
+      [username, hash, finalRole, finalRole === 'admin' ? null : JSON.stringify(permissoes)]
+    );
+    await logAction(req, 'create', 'users', result.insertId, `${username} (${finalRole})`);
+    res.json({ id: result.insertId, username, role: finalRole, permissoes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/users/:id/role', auth, adminOnly, async (req, res) => {
   try {
-    await q('UPDATE users SET role=? WHERE id=?', [req.body.role, Number(req.params.id)]);
+    const id = Number(req.params.id);
+    await q('UPDATE users SET role=? WHERE id=?', [req.body.role, id]);
+    await logAction(req, 'update_role', 'users', id, `nova função: ${req.body.role}`);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Edição completa de um usuário já existente: usuário, função, permissões e,
+// opcionalmente, redefinir a senha (campo vazio = mantém a senha atual).
+app.put('/api/users/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const atual = await q1('SELECT * FROM users WHERE id=?', [id]);
+    if (!atual) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    const { username, role, password } = req.body || {};
+    if (!username || !String(username).trim()) return res.status(400).json({ error: 'Usuário é obrigatório' });
+    const dono = await q1('SELECT id FROM users WHERE username=? AND id<>?', [username.trim(), id]);
+    if (dono) return res.status(400).json({ error: 'Usuário já existe' });
+
+    const finalRole = role === 'admin' ? 'admin' : 'user';
+    const permissoes = finalRole === 'admin' ? [] : sanitizarPermissoes(req.body.permissoes);
+
+    let senhaHash = atual.password;
+    if (password && password.trim()) {
+      if (password.trim().length < 4) return res.status(400).json({ error: 'A senha deve ter ao menos 4 caracteres' });
+      senhaHash = await bcrypt.hash(password.trim(), 10);
+    }
+
+    await q(
+      'UPDATE users SET username=?, role=?, password=?, permissoes=? WHERE id=?',
+      [username.trim(), finalRole, senhaHash, finalRole === 'admin' ? null : JSON.stringify(permissoes), id]
+    );
+    await logAction(req, 'update', 'users', id, `${username.trim()} (${finalRole})`);
+    res.json({ id, username: username.trim(), role: finalRole, permissoes });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
   try {
-    if (Number(req.params.id) === req.user.id) return res.status(400).json({ error: 'Não pode deletar a si mesmo' });
-    await q('DELETE FROM users WHERE id=?', [Number(req.params.id)]);
+    const id = Number(req.params.id);
+    if (id === req.user.id) return res.status(400).json({ error: 'Não pode deletar a si mesmo' });
+    const row = await q1('SELECT username, role FROM users WHERE id=?', [id]);
+    await q('DELETE FROM users WHERE id=?', [id]);
+    await logAction(req, 'delete', 'users', id, row ? `${row.username} (${row.role})` : null);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── LOGS ──────────────────────────────────────────────────────────────────────
+// Só admin acessa. Filtros opcionais por ação, usuário e período; paginado.
+app.get('/api/logs', auth, adminOnly, async (req, res) => {
+  try {
+    const { action, username, from, to, page = '1', limit = '50' } = req.query;
+    const lim = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
+    const pg  = Math.max(parseInt(page) || 1, 1);
+    const off = (pg - 1) * lim;
+
+    let sql = 'SELECT * FROM logs WHERE 1=1';
+    let countSql = 'SELECT COUNT(*) as n FROM logs WHERE 1=1';
+    const p = [];
+    if (action)   { sql += ' AND action=?';           countSql += ' AND action=?';           p.push(action); }
+    if (username) { sql += ' AND username LIKE ?';    countSql += ' AND username LIKE ?';     p.push(`%${username}%`); }
+    if (from)     { sql += ' AND created_at>=?';       countSql += ' AND created_at>=?';       p.push(from); }
+    if (to)       { sql += ' AND created_at<=?';       countSql += ' AND created_at<=?';       p.push(to + ' 23:59:59'); }
+
+    const [{ n }] = await q(countSql, p);
+    sql += ' ORDER BY id DESC LIMIT ? OFFSET ?';
+    const rows = await q(sql, [...p, lim, off]);
+    res.json({ rows, total: n, page: pg, limit: lim, pages: Math.max(Math.ceil(n / lim), 1) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
